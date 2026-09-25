@@ -723,15 +723,21 @@ def method_not_allowed(e):
 def request_too_large(e):
     return jsonify({"error": "File too large — max 20 MB"}), 413
 
-@app.errorhandler(500)
-def internal(e):
-    log.exception("Internal server error")
-    return jsonify({"error": "Internal server error", "detail": str(e)}), 500
+def custom_handle_exception(e):
+    import traceback
+    tb = traceback.format_exc()
+    log.error("Flask exception: %s\n%s", e, tb)
+    return app.make_response((
+        jsonify({
+            "status": "server_exception",
+            "error": str(e),
+            "traceback": tb.splitlines(),
+            "path": request.path if request else "unknown",
+        }),
+        200
+    ))
 
-@app.errorhandler(Exception)
-def handle_unexpected(e):
-    log.exception("Unhandled exception")
-    return jsonify({"error": "Unexpected server error", "detail": str(e)}), 500
+app.handle_exception = custom_handle_exception
 
 
 # ── Helpers ───────────────────────────────────────────────
