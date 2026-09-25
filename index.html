@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ledger — Your Betting P&L Dashboard</title>
+  <meta name="description" content="Track every bet, visualize your bankroll curve, and measure your ROI. Ledger is your personal sports betting P&L dashboard." />
+  <meta property="og:title" content="Ledger — Your Betting P&L Dashboard" />
+  <meta property="og:description" content="Log bets, upload screenshots, and see your full ROI history in one place." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◈</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" media="print" onload="this.media='all'" />
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" /></noscript>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
+</head>
+<body class="ledger-mode">
+
+<!-- ── Top Navigation ──────────────────────────────────────────── -->
+<nav class="navbar" role="navigation" aria-label="Main navigation">
+  <a class="navbar-brand" href="/" aria-label="Ledger Home">
+    <span class="brand-mark" aria-hidden="true">◈</span>
+    <span class="brand-name">Ledger</span>
+  </a>
+
+  <div class="navbar-center">
+    <div class="nav-status" id="nav-status-group" style="opacity:0.5;pointer-events:none;">
+      <span class="live-dot ok" id="live-dot"></span>
+      <span class="nav-status-text" id="live-label">Live</span>
+    </div>
+  </div>
+
+  <div class="navbar-right">
+    <button class="btn-nav-view active" id="btn-view-pikkit">P&amp;L Tracker</button>
+    <div class="nav-divider"></div>
+    <button class="btn-ledger-upload" onclick="document.getElementById('pikkit-file-input').click()" aria-label="Upload screenshot">
+      📸 Upload
+    </button>
+  </div>
+</nav>
+
+<!-- ── Ledger Hero ───────────────────────────────────────────────── -->
+<div class="ledger-hero-strip" id="pikkit-hero">
+  <div class="ledger-hero-inner">
+    <div class="ledger-title-block">
+      <h1 class="ledger-headline"><em>Your bets.</em><br>Every dollar.</h1>
+      <p class="ledger-sub">Log slips, paste screenshots, track every win and loss. One clean dashboard.</p>
+    </div>
+    <div class="ledger-stats-row">
+      <div class="ledger-stat">
+        <div class="ledger-stat-value" id="pk-roi-val">—</div>
+        <div class="ledger-stat-label">ROI</div>
+      </div>
+      <div class="ledger-sep"></div>
+      <div class="ledger-stat ledger-stat--pnl">
+        <div class="ledger-stat-value" id="pk-pnl-val">—</div>
+        <div class="ledger-stat-label">Total P&amp;L</div>
+      </div>
+      <div class="ledger-sep"></div>
+      <div class="ledger-stat">
+        <div class="ledger-stat-value" id="pk-record-val">—</div>
+        <div class="ledger-stat-label">Record</div>
+      </div>
+      <div class="ledger-sep"></div>
+      <div class="ledger-stat">
+        <div class="ledger-stat-value" id="pk-winrate-val">—</div>
+        <div class="ledger-stat-label">Win Rate</div>
+      </div>
+      <div class="ledger-sep"></div>
+      <div class="ledger-stat ledger-stat--streak">
+        <div class="ledger-stat-value" id="pk-streak-val">—</div>
+        <div class="ledger-stat-label">Streak</div>
+      </div>
+      <div class="ledger-sep"></div>
+      <div class="ledger-stat">
+        <div class="ledger-stat-value" id="pk-wdays-val">— / —</div>
+        <div class="ledger-stat-label">W-Days / L-Days</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Main Content ─────────────────────────────────────────────── -->
+<div class="ledger-body" id="view-pikkit">
+
+  <!-- Ledger Control Bar: Verified Record vs Guest Sandbox + Admin Status -->
+  <div class="ledger-control-bar" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:18px;padding:10px 16px;background:var(--ink-1);border:1px solid var(--rule);border-radius:8px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div id="pk-mode-pill" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;background:rgba(76,175,125,0.12);color:var(--green-pos);border:1px solid rgba(76,175,125,0.25)">
+        <span id="pk-mode-icon" style="font-size:14px">🛡️</span> <span id="pk-mode-text">Verified Public Record</span>
+      </div>
+      <div class="ledger-toggle-group" style="display:inline-flex;background:var(--ink-2);padding:2px;border-radius:6px;border:1px solid var(--rule)">
+        <button id="btn-mode-verified" class="btn-mode-pill active" onclick="switchLedgerMode('verified')" style="padding:4px 12px;font-size:11px;font-weight:600;border:none;border-radius:4px;cursor:pointer;background:var(--ink-4);color:var(--parch)">Harry's Record</button>
+        <button id="btn-mode-sandbox" class="btn-mode-pill" onclick="switchLedgerMode('sandbox')" style="padding:4px 12px;font-size:11px;font-weight:600;border:none;border-radius:4px;cursor:pointer;background:transparent;color:var(--stone)">Guest Sandbox</button>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <button id="btn-admin-auth" onclick="toggleAdminAuthAction()" style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;font-size:11px;font-weight:600;border-radius:6px;border:1px solid var(--rule);background:transparent;color:var(--stone);cursor:pointer">
+        <span id="admin-lock-icon">🔒</span> <span id="admin-lock-text">Admin Unlock</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Upload Drop Zone -->
+  <section class="ledger-upload-section" id="pikkit-upload-section">
+    <div class="pikkit-drop-zone" id="pikkit-drop-zone"
+         onclick="document.getElementById('pikkit-file-input').click()"
+         ondragover="pikkitDragOver(event)"
+         ondragleave="pikkitDragLeave(event)"
+         ondrop="pikkitDrop(event)">
+      <input type="file" id="pikkit-file-input" accept="image/*" multiple style="display:none" onchange="pikkitFilePicked(event)" />
+      <div class="drop-icon">📸</div>
+      <div class="drop-title">Paste screenshot (Ctrl+V / ⌘V) or drop here</div>
+      <div class="drop-sub">Copy any bet slip screenshot &amp; paste anywhere · Gemini Vision auto-extracts bet details</div>
+      <div class="pikkit-upload-status" id="pikkit-upload-status"></div>
+    </div>
+    <div class="pikkit-key-notice" id="pikkit-key-notice" style="display:none">
+      <span>⚠️ Add your <strong>GEMINI_API_KEY</strong> to <code>.env</code> to enable screenshot auto-parsing. Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com</a></span>
+    </div>
+  </section>
+
+  <!-- Two-column: Calendar + Chart -->
+  <div class="ledger-grid">
+
+    <!-- Calendar -->
+    <section class="ledger-panel" aria-label="Daily P&L calendar">
+      <div class="ledger-panel-header">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="ledger-panel-title">Daily P&amp;L</span>
+          <span id="pk-cal-month-summary" class="pikkit-month-pnl-pill" style="display:none;"></span>
+        </div>
+        <div class="pikkit-cal-select-wrap">
+          <select id="pk-cal-month-select" class="pikkit-month-dropdown" aria-label="Select month for P&L calendar">
+          </select>
+        </div>
+      </div>
+      <div class="pikkit-calendar" id="pikkit-calendar">
+        <div class="state-container" style="padding:32px 0"><div class="spinner"></div></div>
+      </div>
+      <div class="pikkit-cal-legend">
+        <span class="cal-dot cal-loss-3"></span><span>Big Loss</span>
+        <span class="cal-dot cal-loss-1"></span><span>Small Loss</span>
+        <span class="cal-dot cal-zero"></span><span>Break Even</span>
+        <span class="cal-dot cal-win-1"></span><span>Small Win</span>
+        <span class="cal-dot cal-win-3"></span><span>Big Win</span>
+      </div>
+    </section>
+
+    <!-- Bankroll Curve -->
+    <section class="ledger-panel" aria-label="Bankroll curve chart">
+      <div class="ledger-panel-header">
+        <span class="ledger-panel-title">Bankroll Curve</span>
+        <span class="pikkit-panel-sub" id="pk-curve-range"></span>
+      </div>
+      <div class="pikkit-chart-wrap">
+        <canvas id="pikkit-chart" aria-label="Cumulative P&L chart"></canvas>
+      </div>
+      <div class="bankroll-summary-strip" style="display:flex;justify-content:space-around;align-items:center;border-top:1px solid var(--rule);padding-top:14px;margin-top:14px;text-align:center;">
+        <div>
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Total Wagered</div>
+          <div style="font-size:16px;font-weight:700;color:var(--text-main);margin-top:2px;" id="pk-summary-wagered">$0.00</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Net Profit / Loss</div>
+          <div style="font-size:16px;font-weight:700;color:#4CAF50;margin-top:2px;" id="pk-summary-profit">+$0.00</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">ROI %</div>
+          <div style="font-size:16px;font-weight:700;color:var(--amber);margin-top:2px;" id="pk-summary-roi">+0.0%</div>
+        </div>
+      </div>
+    </section>
+
+  </div><!-- /.ledger-grid -->
+
+  <!-- By Sportsbook -->
+  <section class="ledger-panel ledger-panel--full" id="pikkit-books-section" aria-label="By sportsbook breakdown">
+    <div class="ledger-panel-header">
+      <span class="ledger-panel-title">By Sportsbook</span>
+    </div>
+    <div id="pikkit-books-list" class="pikkit-books-list"></div>
+  </section>
+
+  <!-- AI Evaluator -->
+  <section class="ledger-panel ledger-panel--full" id="pikkit-ai-section" aria-label="AI bet evaluation">
+    <div class="ledger-panel-header">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span class="ledger-panel-title">🤖 AI Bet Diagnosis</span>
+        <span class="pikkit-panel-sub" style="color:var(--stone)">Gemini 3.5 Flash · Quant Pattern Analysis</span>
+      </div>
+      <button class="btn-submit" style="padding:5px 14px;font-size:11px" onclick="loadAIBetEvaluation()">✨ Run Diagnosis</button>
+    </div>
+    <div id="pikkit-ai-container" style="padding:20px">
+      <div class="state-container" style="padding:24px 0">
+        <div class="spinner"></div>
+        <div class="state-sub">Evaluating bet history and identifying patterns...</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Bet History -->
+  <section class="ledger-panel ledger-panel--full" aria-label="Bet history table">
+    <div class="ledger-panel-header">
+      <span class="ledger-panel-title">Bet History</span>
+      <div class="pikkit-filters" id="pikkit-filters">
+        <select id="pk-filter-result" class="pikkit-select" onchange="loadPikkit()">
+          <option value="">All Results</option>
+          <option value="win">Wins</option>
+          <option value="loss">Losses</option>
+          <option value="push">Push</option>
+          <option value="pending">Pending</option>
+        </select>
+        <select id="pk-filter-sport" class="pikkit-select" onchange="loadPikkit()">
+          <option value="">All Sports</option>
+          <option value="MLB">MLB</option>
+          <option value="NFL">NFL</option>
+          <option value="NBA">NBA</option>
+          <option value="WNBA">WNBA</option>
+          <option value="NHL">NHL</option>
+          <option value="Soccer">Soccer</option>
+          <option value="Tennis">Tennis</option>
+          <option value="Casino">Casino</option>
+        </select>
+        <button class="btn-add-bet-manual" onclick="togglePikkitManualForm()">+ Add Bet</button>
+        <button class="btn-add-bet-manual" style="background:rgba(212,168,67,0.12);border-color:var(--amber-border);color:var(--amber)" onclick="togglePikkitProfitForm()">🎰 + Casino / Profit</button>
+      </div>
+    </div>
+
+    <!-- Manual Bet Form -->
+    <div class="pikkit-manual-form" id="pikkit-manual-form" style="display:none">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Sportsbook</label>
+          <input type="text" id="pk-m-book" class="form-input" placeholder="DraftKings" />
+        </div>
+        <div class="form-group">
+          <label>Sport</label>
+          <input type="text" id="pk-m-sport" class="form-input" placeholder="MLB" />
+        </div>
+        <div class="form-group">
+          <label>Game</label>
+          <input type="text" id="pk-m-game" class="form-input" placeholder="Yankees vs Red Sox" />
+        </div>
+        <div class="form-group">
+          <label>Selection</label>
+          <input type="text" id="pk-m-selection" class="form-input" placeholder="NYY ML" />
+        </div>
+        <div class="form-group">
+          <label>Odds (American)</label>
+          <input type="number" id="pk-m-odds" class="form-input" placeholder="-110" />
+        </div>
+        <div class="form-group">
+          <label>Stake ($) <span class="optional">(0 = Bonus Bet)</span></label>
+          <input type="number" id="pk-m-stake" class="form-input" placeholder="25" step="0.01" />
+        </div>
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="pk-m-date" class="form-input" />
+        </div>
+        <div class="form-group">
+          <label>Result</label>
+          <select id="pk-m-result" class="form-input pikkit-select">
+            <option value="pending">Pending</option>
+            <option value="win">Win</option>
+            <option value="loss">Loss</option>
+            <option value="push">Push</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn-submit" onclick="submitPikkitManual()">Save Bet</button>
+        <span class="form-status" id="pk-manual-status"></span>
+      </div>
+    </div>
+
+    <!-- Casino / Profit Form -->
+    <div class="pikkit-manual-form" id="pikkit-profit-form" style="display:none;background:var(--ink-3);border-left:3px solid var(--amber)">
+      <div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.06em">🎰 Quick Log: Casino &amp; Direct Profit / Loss</div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Platform / Site</label>
+          <input type="text" id="pk-p-book" class="form-input" placeholder="DraftKings Casino" />
+        </div>
+        <div class="form-group">
+          <label>Category / Game</label>
+          <input type="text" id="pk-p-category" class="form-input" placeholder="Slots" />
+        </div>
+        <div class="form-group">
+          <label>Net Profit / Loss ($)</label>
+          <input type="number" id="pk-p-pnl" class="form-input" placeholder="150 (win) or -50 (loss)" step="0.01" />
+        </div>
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="pk-p-date" class="form-input" />
+        </div>
+      </div>
+      <div class="form-actions" style="margin-top:12px">
+        <button class="btn-submit" onclick="submitPikkitProfit()">Save</button>
+        <span class="form-status" id="pk-profit-status"></span>
+      </div>
+    </div>
+
+    <div class="table-wrapper" style="margin-top:0">
+      <div id="pikkit-table-container">
+        <div class="state-container"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <p class="disclaimer">Screenshots processed locally by Gemini Vision AI. No bet data sent to third parties.</p>
+
+</div><!-- /.ledger-body -->
+
+<!-- ── Footer ───────────────────────────────────────────────────── -->
+<footer class="status-bar" role="status" aria-label="System status">
+  <div class="status-left">
+    <div class="status-item">
+      <div class="status-dot ok"></div>
+      <span>Ledger</span>
+    </div>
+    <div class="status-sep"></div>
+    <div class="status-item">Personal P&amp;L Dashboard</div>
+  </div>
+  <div class="status-right muted">Built with Gemini Vision</div>
+</footer>
+
+<!-- Admin PIN Modal -->
+<div id="admin-pin-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:9999;align-items:center;justify-content:center;backdrop-filter:blur(4px)">
+  <div style="background:var(--ink-1);border:1px solid var(--rule);border-radius:10px;width:90%;max-width:380px;padding:24px;box-shadow:0 20px 40px rgba(0,0,0,0.6)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="font-size:16px;font-weight:700;color:var(--parch)">🔒 Admin Authorization</div>
+      <button onclick="closeAdminModal()" style="background:none;border:none;color:var(--stone);font-size:20px;cursor:pointer;line-height:1">&times;</button>
+    </div>
+    <div style="font-size:12px;color:var(--stone);margin-bottom:18px;line-height:1.5">
+      Enter your secret Admin PIN to enable live uploading and bet logging from this device.
+    </div>
+    <div style="margin-bottom:14px">
+      <input type="password" id="admin-pin-input" class="form-input" placeholder="••••••••" style="width:100%;font-size:16px;letter-spacing:0.25em;text-align:center" onkeydown="if(event.key==='Enter') submitAdminPin()" />
+    </div>
+    <div id="admin-modal-status" style="font-size:12px;margin-bottom:14px;display:none;text-align:center"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn-secondary" onclick="closeAdminModal()">Cancel</button>
+      <button class="btn-submit" onclick="submitAdminPin()">Unlock Live Access</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script src="pikkit.js"></script>
+</body>
+</html>

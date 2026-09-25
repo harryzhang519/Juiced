@@ -25,15 +25,15 @@ from flask import Flask, jsonify, request, send_from_directory, abort
 from flask_cors import CORS
 
 from config import Config
-import backend.scheduler as sched_mod
 
 log = logging.getLogger(__name__)
 
 # ── App setup ─────────────────────────────────────────────
-PUBLIC_DIR = os.path.join(os.path.dirname(__file__), "..", "public")
-FRONTEND_DIR = PUBLIC_DIR if os.path.isdir(PUBLIC_DIR) else os.path.join(os.path.dirname(__file__), "..", "frontend")
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+PUBLIC_DIR = os.path.join(ROOT_DIR, "public")
+FRONTEND_DIR = PUBLIC_DIR if os.path.isdir(PUBLIC_DIR) else os.path.join(ROOT_DIR, "frontend")
 
-app = Flask(__name__, static_folder=FRONTEND_DIR)
+app = Flask(__name__, static_folder=ROOT_DIR)
 app.secret_key = Config.SECRET_KEY
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 CORS(app)
@@ -43,7 +43,11 @@ CORS(app)
 
 @app.route("/")
 def index():
-    return send_from_directory(FRONTEND_DIR, "index.html")
+    for d in [ROOT_DIR, PUBLIC_DIR, FRONTEND_DIR]:
+        target = os.path.join(d, "index.html")
+        if os.path.isfile(target):
+            return send_from_directory(d, "index.html")
+    return jsonify({"status": "ok", "app": "EV Edge", "message": "API backend active"})
 
 
 @app.route("/api/health")
@@ -667,17 +671,22 @@ def _get_or_refresh(sport: str) -> dict:
     Return cached EV results for a sport.
     If cache is stale or missing, triggers a synchronous refresh.
     """
-    client = sched_mod._get_client()
-    info = client.get_cache_info(sport)
-    if not info.get("is_fresh", False):
-        log.info("Cache for %s is stale — refreshing synchronously", sport)
-        return sched_mod.refresh_sport(sport, force=True) or {}
+    try:
+        import backend.scheduler as sched_mod
+        client = sched_mod._get_client()
+        info = client.get_cache_info(sport)
+        if not info.get("is_fresh", False):
+            log.info("Cache for %s is stale — refreshing synchronously", sport)
+            return sched_mod.refresh_sport(sport, force=True) or {}
 
-    result = sched_mod.get_cached_result(sport)
-    if result is None:
-        log.info("No cache for %s — running first-time refresh synchronously", sport)
-        result = sched_mod.refresh_sport(sport, force=True)
-    return result or {}
+        result = sched_mod.get_cached_result(sport)
+        if result is None:
+            log.info("No cache for %s — running first-time refresh synchronously", sport)
+            result = sched_mod.refresh_sport(sport, force=True)
+        return result or {}
+    except Exception as e:
+        log.warning("Could not refresh %s: %s", sport, e)
+        return {}
 
 
 def create_app() -> Flask:
