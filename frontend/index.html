@@ -84,6 +84,24 @@
 <!-- ── Main Content ─────────────────────────────────────────────── -->
 <div class="ledger-body" id="view-pikkit">
 
+  <!-- Ledger Control Bar: Verified Record vs Guest Sandbox + Admin Status -->
+  <div class="ledger-control-bar" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:18px;padding:10px 16px;background:var(--ink-1);border:1px solid var(--rule);border-radius:8px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div id="pk-mode-pill" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;background:rgba(76,175,125,0.12);color:var(--green-pos);border:1px solid rgba(76,175,125,0.25)">
+        <span id="pk-mode-icon" style="font-size:14px">🛡️</span> <span id="pk-mode-text">Verified Public Record</span>
+      </div>
+      <div class="ledger-toggle-group" style="display:inline-flex;background:var(--ink-2);padding:2px;border-radius:6px;border:1px solid var(--rule)">
+        <button id="btn-mode-verified" class="btn-mode-pill active" onclick="switchLedgerMode('verified')" style="padding:4px 12px;font-size:11px;font-weight:600;border:none;border-radius:4px;cursor:pointer;background:var(--ink-4);color:var(--parch)">Harry's Record</button>
+        <button id="btn-mode-sandbox" class="btn-mode-pill" onclick="switchLedgerMode('sandbox')" style="padding:4px 12px;font-size:11px;font-weight:600;border:none;border-radius:4px;cursor:pointer;background:transparent;color:var(--stone)">Guest Sandbox</button>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <button id="btn-admin-auth" onclick="toggleAdminAuthAction()" style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;font-size:11px;font-weight:600;border-radius:6px;border:1px solid var(--rule);background:transparent;color:var(--stone);cursor:pointer">
+        <span id="admin-lock-icon">🔒</span> <span id="admin-lock-text">Admin Unlock</span>
+      </button>
+    </div>
+  </div>
+
   <!-- Upload Drop Zone -->
   <section class="ledger-upload-section" id="pikkit-upload-section">
     <div class="pikkit-drop-zone" id="pikkit-drop-zone"
@@ -306,6 +324,27 @@
   </div>
   <div class="status-right muted">Built with Gemini Vision</div>
 </footer>
+
+<!-- Admin PIN Modal -->
+<div id="admin-pin-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:9999;align-items:center;justify-content:center;backdrop-filter:blur(4px)">
+  <div style="background:var(--ink-1);border:1px solid var(--rule);border-radius:10px;width:90%;max-width:380px;padding:24px;box-shadow:0 20px 40px rgba(0,0,0,0.6)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="font-size:16px;font-weight:700;color:var(--parch)">🔒 Admin Authorization</div>
+      <button onclick="closeAdminModal()" style="background:none;border:none;color:var(--stone);font-size:20px;cursor:pointer;line-height:1">&times;</button>
+    </div>
+    <div style="font-size:12px;color:var(--stone);margin-bottom:18px;line-height:1.5">
+      Enter your secret Admin PIN to enable live uploading and bet logging from this device.
+    </div>
+    <div style="margin-bottom:14px">
+      <input type="password" id="admin-pin-input" class="form-input" placeholder="••••••••" style="width:100%;font-size:16px;letter-spacing:0.25em;text-align:center" onkeydown="if(event.key==='Enter') submitAdminPin()" />
+    </div>
+    <div id="admin-modal-status" style="font-size:12px;margin-bottom:14px;display:none;text-align:center"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn-secondary" onclick="closeAdminModal()">Cancel</button>
+      <button class="btn-submit" onclick="submitAdminPin()">Unlock Live Access</button>
+    </div>
+  </div>
+</div>
 
 <script src="app.js"></script>
 <script src="pikkit.js"></script>

@@ -350,13 +350,48 @@ def api_sharp_analyze():
     return jsonify({"signals": signals, "count": len(signals)})
 
 
+# ── Admin Auth Helper ──────────────────────────────────────────────
+
+def check_admin_access() -> bool:
+    """
+    Check if the request carries valid Admin credentials.
+    If Config.ADMIN_PIN is configured, the request must provide matching
+    'X-Admin-Pin' or 'Authorization: Bearer <pin>' header.
+    If Config.ADMIN_PIN is empty, access is permitted (local dev).
+    """
+    pin = (Config.ADMIN_PIN or "").strip()
+    if not pin:
+        return True  # No PIN configured, allow access
+    req_pin = request.headers.get("X-Admin-Pin", "").strip()
+    if not req_pin:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            req_pin = auth_header[7:].strip()
+    return req_pin == pin
+
+
+@app.route("/api/admin/verify", methods=["GET", "POST"])
+def admin_verify():
+    """Verify admin PIN status."""
+    pin = (Config.ADMIN_PIN or "").strip()
+    if not pin:
+        return jsonify({"valid": True, "pin_required": False})
+    if request.method == "GET":
+        req_pin = request.headers.get("X-Admin-Pin", "").strip()
+        return jsonify({"valid": req_pin == pin, "pin_required": True})
+    data = request.get_json(silent=True) or {}
+    req_pin = str(data.get("pin") or request.headers.get("X-Admin-Pin", "")).strip()
+    return jsonify({"valid": req_pin == pin, "pin_required": True})
+
+
 # ── API: Pikkit — Screenshot ROI Tracker ──────────────
 
 @app.route("/api/pikkit/upload", methods=["POST"])
 def pikkit_upload():
     """
     Upload a bet screenshot. Gemini Vision auto-extracts bet details.
-    Returns extracted bets (may be multiple if several slips visible).
+    If Admin PIN is valid, saves directly to the verified database.
+    If not Admin, parses bets and returns them for Guest Sandbox mode.
     """
     from backend.pikkit import parse_screenshot, save_upload, create_bet_from_parsed, add_bet
 
@@ -373,11 +408,13 @@ def pikkit_upload():
     # Vision parse
     parsed_list, vision_err = parse_screenshot(image_bytes, f.filename)
 
+    is_admin = check_admin_access()
     saved_bets = []
     if parsed_list:
         for p in parsed_list:
             bet = create_bet_from_parsed(p, screenshot_file=stored_name)
-            add_bet(bet)
+            if is_admin:
+                add_bet(bet)
             saved_bets.append(bet)
     else:
         log.warning("Vision parse returned no results for %s: %s", stored_name, vision_err)
@@ -389,6 +426,7 @@ def pikkit_upload():
         "bets":         saved_bets,
         "vision_ok":    len(saved_bets) > 0,
         "vision_error": vision_err,
+        "sandbox_mode": not is_admin,
     }), 201
 
 
@@ -405,7 +443,10 @@ def pikkit_get_bets():
 
 @app.route("/api/pikkit/bets", methods=["POST"])
 def pikkit_add_bet():
-    """Manually add a single bet (no screenshot)."""
+    """Manually add a single bet (Admin protected for verified ledger)."""
+    if not check_admin_access():
+        return jsonify({"error": "Admin PIN required to modify verified ledger. Use Guest Sandbox mode to test."}), 401
+
     import importlib, backend.pikkit
     importlib.reload(backend.pikkit)
     data = request.get_json(force=True)
@@ -418,7 +459,10 @@ def pikkit_add_bet():
 
 @app.route("/api/pikkit/bets/<bet_id>", methods=["PATCH"])
 def pikkit_update_bet(bet_id: str):
-    """Update a pikkit bet (settle result, fix odds, etc.)."""
+    """Update a pikkit bet (Admin protected)."""
+    if not check_admin_access():
+        return jsonify({"error": "Admin PIN required to modify verified ledger."}), 401
+
     import importlib, backend.pikkit
     importlib.reload(backend.pikkit)
     data = request.get_json(force=True)
@@ -430,7 +474,10 @@ def pikkit_update_bet(bet_id: str):
 
 @app.route("/api/pikkit/bets/<bet_id>", methods=["DELETE"])
 def pikkit_delete_bet(bet_id: str):
-    """Delete a pikkit bet."""
+    """Delete a pikkit bet (Admin protected)."""
+    if not check_admin_access():
+        return jsonify({"error": "Admin PIN required to modify verified ledger."}), 401
+
     from backend.pikkit import delete_bet
     if not delete_bet(bet_id):
         abort(404, f"Bet {bet_id} not found")

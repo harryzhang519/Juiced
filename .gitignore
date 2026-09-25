@@ -20,6 +20,7 @@ data/*.json
 data/*.csv
 data/uploads/
 !data/mock_*.json
+!data/pikkit_bets.json
 !data/.gitkeep
 
 # IDEs

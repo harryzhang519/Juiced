@@ -17,10 +17,162 @@
 let _pikkitChart = null;
 let _pikkitBets  = [];
 let _pikkitStats = {};
+let _currentMode = 'verified'; // 'verified' | 'sandbox'
+let _adminPin    = localStorage.getItem('ev_edge_admin_pin') || '';
+let _isAdmin     = false;
+
+function getAuthHeaders(extra = {}) {
+  const h = { ...extra };
+  if (_adminPin) h['X-Admin-Pin'] = _adminPin;
+  return h;
+}
+
+// ── Admin Status & Mode Switching ──────────────────────────────────
+
+async function checkAdminStatus() {
+  if (!_adminPin) {
+    _updateAdminUI(false);
+    return;
+  }
+  try {
+    const res = await fetch('/api/admin/verify', { headers: getAuthHeaders() });
+    const data = await res.json();
+    _isAdmin = !!data.valid;
+    _updateAdminUI(_isAdmin);
+  } catch (e) {
+    _updateAdminUI(false);
+  }
+}
+
+function _updateAdminUI(isAdmin) {
+  const icon = document.getElementById('admin-lock-icon');
+  const text = document.getElementById('admin-lock-text');
+  const btn  = document.getElementById('btn-admin-auth');
+  if (isAdmin) {
+    if (icon) icon.textContent = '🔓';
+    if (text) text.textContent = 'Admin Mode Active';
+    if (btn) {
+      btn.style.color = 'var(--green-pos)';
+      btn.style.borderColor = 'rgba(76,175,125,0.3)';
+      btn.style.background = 'rgba(76,175,125,0.08)';
+    }
+  } else {
+    if (icon) icon.textContent = '🔒';
+    if (text) text.textContent = 'Admin Unlock';
+    if (btn) {
+      btn.style.color = 'var(--stone)';
+      btn.style.borderColor = 'var(--rule)';
+      btn.style.background = 'transparent';
+    }
+  }
+}
+
+function toggleAdminAuthAction() {
+  if (_isAdmin) {
+    if (confirm('Lock admin mode and log out of live updates on this device?')) {
+      _adminPin = '';
+      _isAdmin  = false;
+      localStorage.removeItem('ev_edge_admin_pin');
+      _updateAdminUI(false);
+    }
+  } else {
+    openAdminModal();
+  }
+}
+
+function openAdminModal() {
+  const m = document.getElementById('admin-pin-modal');
+  if (m) {
+    m.style.display = 'flex';
+    const inp = document.getElementById('admin-pin-input');
+    if (inp) { inp.value = ''; inp.focus(); }
+    const st = document.getElementById('admin-modal-status');
+    if (st) st.style.display = 'none';
+  }
+}
+
+function closeAdminModal() {
+  const m = document.getElementById('admin-pin-modal');
+  if (m) m.style.display = 'none';
+}
+
+async function submitAdminPin() {
+  const inp = document.getElementById('admin-pin-input');
+  const status = document.getElementById('admin-modal-status');
+  const pin = inp?.value.trim() || '';
+  if (!pin) return;
+
+  try {
+    const res = await fetch('/api/admin/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin }),
+    });
+    const data = await res.json();
+    if (data.valid) {
+      _adminPin = pin;
+      _isAdmin  = true;
+      localStorage.setItem('ev_edge_admin_pin', pin);
+      _updateAdminUI(true);
+      closeAdminModal();
+      switchLedgerMode('verified');
+    } else {
+      if (status) {
+        status.textContent = '❌ Invalid PIN. Please try again.';
+        status.style.color = 'var(--crimson)';
+        status.style.display = 'block';
+      }
+    }
+  } catch (e) {
+    if (status) {
+      status.textContent = 'Error verifying PIN: ' + e.message;
+      status.style.color = 'var(--crimson)';
+      status.style.display = 'block';
+    }
+  }
+}
+
+function switchLedgerMode(mode) {
+  _currentMode = mode;
+  const btnVer   = document.getElementById('btn-mode-verified');
+  const btnSbx   = document.getElementById('btn-mode-sandbox');
+  const pillIcon = document.getElementById('pk-mode-icon');
+  const pillText = document.getElementById('pk-mode-text');
+  const pillWrap = document.getElementById('pk-mode-pill');
+
+  if (mode === 'verified') {
+    if (btnVer) { btnVer.style.background = 'var(--ink-4)'; btnVer.style.color = 'var(--parch)'; }
+    if (btnSbx) { btnSbx.style.background = 'transparent'; btnSbx.style.color = 'var(--stone)'; }
+    if (pillWrap) {
+      pillWrap.style.background = 'rgba(76,175,125,0.12)';
+      pillWrap.style.color = 'var(--green-pos)';
+      pillWrap.style.borderColor = 'rgba(76,175,125,0.25)';
+    }
+    if (pillIcon) pillIcon.textContent = '🛡️';
+    if (pillText) pillText.textContent = "Harry's Verified Record";
+    loadPikkit();
+  } else {
+    if (btnSbx) { btnSbx.style.background = 'var(--ink-4)'; btnSbx.style.color = 'var(--parch)'; }
+    if (btnVer) { btnVer.style.background = 'transparent'; btnVer.style.color = 'var(--stone)'; }
+    if (pillWrap) {
+      pillWrap.style.background = 'rgba(212,168,67,0.12)';
+      pillWrap.style.color = 'var(--amber)';
+      pillWrap.style.borderColor = 'rgba(212,168,67,0.25)';
+    }
+    if (pillIcon) pillIcon.textContent = '🧪';
+    if (pillText) pillText.textContent = "Guest Sandbox Mode";
+    loadSandbox();
+  }
+}
 
 // ── Init ───────────────────────────────────────────────────────────
 
 async function loadPikkit() {
+  await checkAdminStatus();
+  if (_currentMode === 'sandbox') {
+    loadSandbox();
+    return;
+  }
   await Promise.all([fetchPikkitStats(), fetchPikkitBets()]);
   loadAIBetEvaluation();
 }
@@ -415,8 +567,34 @@ async function savePikkitEdit(id) {
   const dt   = g('ie-date');     if (dt)    body.date       = dt;
 
   try {
+    if (_currentMode === 'sandbox') {
+      const bets = getSandboxBets();
+      const idx = bets.findIndex(b => b.id === id);
+      if (idx !== -1) {
+        bets[idx] = { ...bets[idx], ...body };
+        const stake  = parseFloat(bets[idx].stake || 0);
+        const payout = bets[idx].payout;
+        const res    = bets[idx].result;
+        if (res === 'win' && payout != null) bets[idx].pnl = Math.round((payout - stake) * 100) / 100;
+        else if (res === 'loss') bets[idx].pnl = -stake;
+        else if (res === 'push') bets[idx].pnl = 0;
+        saveSandboxBets(bets);
+        if (status) { status.textContent = '✅ Saved in Sandbox'; status.className = 'form-status ok'; }
+        setTimeout(() => loadSandbox(), 400);
+        return;
+      }
+    }
+
+    if (!_isAdmin) {
+      if (status) { status.textContent = '🔒 Admin PIN required to edit verified bets.'; status.className = 'form-status err'; }
+      openAdminModal();
+      return;
+    }
+
     const r = await fetch(`/api/pikkit/bets/${id}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      method: 'PATCH',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error(await r.text());
     if (status) { status.textContent = '✅ Saved'; status.className = 'form-status ok'; }
@@ -428,7 +606,21 @@ async function savePikkitEdit(id) {
 
 async function deletePikkitBet(id) {
   if (!confirm('Delete this bet?')) return;
-  await fetch(`/api/pikkit/bets/${id}`, { method: 'DELETE' });
+  if (_currentMode === 'sandbox') {
+    const bets = getSandboxBets().filter(b => b.id !== id);
+    saveSandboxBets(bets);
+    loadSandbox();
+    return;
+  }
+  if (!_isAdmin) {
+    alert('🔒 Admin PIN required to delete verified bets.');
+    openAdminModal();
+    return;
+  }
+  await fetch(`/api/pikkit/bets/${id}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
   loadPikkit();
 }
 
@@ -456,11 +648,22 @@ async function uploadPikkitFiles(files) {
     try {
       const fd = new FormData();
       fd.append('file', file, file.name);
-      const res  = await fetch('/api/pikkit/upload', { method: 'POST', body: fd });
+      const res  = await fetch('/api/pikkit/upload', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: fd,
+      });
       const data = await res.json();
       if (data.bets_found > 0) {
-        _setUploadStatus(`✅ ${data.bets_found} bet${data.bets_found > 1 ? 's' : ''} extracted!`, 'ok');
-        await loadPikkit();
+        if (data.sandbox_mode) {
+          const existing = getSandboxBets();
+          saveSandboxBets([...(data.bets || []), ...existing]);
+          _setUploadStatus(`✅ ${data.bets_found} bet${data.bets_found > 1 ? 's' : ''} extracted to your Guest Sandbox!`, 'ok');
+          switchLedgerMode('sandbox');
+        } else {
+          _setUploadStatus(`✅ ${data.bets_found} bet${data.bets_found > 1 ? 's' : ''} published to Verified Public Record!`, 'ok');
+          await loadPikkit();
+        }
       } else {
         _setUploadStatus(`⚠️ Couldn't extract bet details. ${data.vision_error || 'Add a GEMINI_API_KEY to .env to enable Vision.'}`, 'warn');
         const notice = document.getElementById('pikkit-key-notice');
@@ -507,18 +710,38 @@ function togglePikkitManualForm() {
 async function submitPikkitManual() {
   const g = id => document.getElementById(id)?.value || '';
   const status = document.getElementById('pk-manual-status');
+  const stake = parseFloat(g('pk-m-stake')) || 0;
   const bet = {
+    id: 'SBX-' + Date.now().toString(36).toUpperCase(),
     sportsbook: g('pk-m-book'), sport: g('pk-m-sport'), game: g('pk-m-game'),
     selection:  g('pk-m-selection'), odds: parseInt(g('pk-m-odds')) || 100,
-    stake: parseFloat(g('pk-m-stake')) || 0, date: g('pk-m-date') || new Date().toISOString().slice(0,10),
+    stake: stake, date: g('pk-m-date') || new Date().toISOString().slice(0,10),
     result: g('pk-m-result') || 'pending', market: 'Moneyline',
   };
+
+  if (_currentMode === 'sandbox') {
+    const bets = getSandboxBets();
+    bets.unshift(bet);
+    saveSandboxBets(bets);
+    if (status) { status.textContent = '✅ Saved in Guest Sandbox!'; status.className = 'form-status ok'; }
+    setTimeout(() => { togglePikkitManualForm(); loadSandbox(); }, 500);
+    return;
+  }
+
+  if (!_isAdmin) {
+    if (status) { status.textContent = '🔒 Admin PIN required. Or switch to Guest Sandbox.'; status.className = 'form-status err'; }
+    openAdminModal();
+    return;
+  }
+
   try {
     const r = await fetch('/api/pikkit/bets', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bet),
+      method: 'POST',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(bet),
     });
     if (!r.ok) throw new Error(await r.text());
-    if (status) { status.textContent = '✅ Saved!'; status.className = 'form-status ok'; }
+    if (status) { status.textContent = '✅ Published to Verified Record!'; status.className = 'form-status ok'; }
     setTimeout(() => { togglePikkitManualForm(); loadPikkit(); }, 500);
   } catch (e) {
     if (status) { status.textContent = `Error: ${e.message}`; status.className = 'form-status err'; }
@@ -546,21 +769,138 @@ async function submitPikkitProfit() {
   const cat  = g('pk-p-category') || 'Casino';
   const date = g('pk-p-date') || new Date().toISOString().slice(0,10);
   const bet  = {
+    id: 'SBX-' + Date.now().toString(36).toUpperCase(),
     sportsbook: book, sport: 'Casino', game: cat, selection: cat,
     market: 'Casino', odds: pnl >= 0 ? 100 : -100, stake: 0,
     payout: pnl >= 0 ? pnl : null, result: pnl >= 0 ? 'win' : 'loss',
     pnl, date,
   };
+
+  if (_currentMode === 'sandbox') {
+    const bets = getSandboxBets();
+    bets.unshift(bet);
+    saveSandboxBets(bets);
+    if (status) { status.textContent = '✅ Saved in Guest Sandbox!'; status.className = 'form-status ok'; }
+    setTimeout(() => { togglePikkitProfitForm(); loadSandbox(); }, 500);
+    return;
+  }
+
+  if (!_isAdmin) {
+    if (status) { status.textContent = '🔒 Admin PIN required. Or switch to Guest Sandbox.'; status.className = 'form-status err'; }
+    openAdminModal();
+    return;
+  }
+
   try {
     const r = await fetch('/api/pikkit/bets', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bet),
+      method: 'POST',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(bet),
     });
     if (!r.ok) throw new Error(await r.text());
-    if (status) { status.textContent = '✅ Saved!'; status.className = 'form-status ok'; }
+    if (status) { status.textContent = '✅ Published to Verified Record!'; status.className = 'form-status ok'; }
     setTimeout(() => { togglePikkitProfitForm(); loadPikkit(); }, 500);
   } catch (e) {
     if (status) { status.textContent = `Error: ${e.message}`; status.className = 'form-status err'; }
   }
+}
+
+// ── Guest Sandbox State & Computation ──────────────────────────────
+
+function getSandboxBets() {
+  try {
+    return JSON.parse(localStorage.getItem('ev_edge_sandbox_bets') || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveSandboxBets(bets) {
+  localStorage.setItem('ev_edge_sandbox_bets', JSON.stringify(bets));
+}
+
+function loadSandbox() {
+  const bets = getSandboxBets();
+  _pikkitBets = bets;
+  _pikkitStats = _computeSandboxStats(bets);
+  renderPikkitStats(_pikkitStats);
+  renderBankrollChart(_pikkitStats.bankroll_curve || []);
+  renderPikkitBooks(_pikkitStats.by_sportsbook || {});
+  renderPikkitTable(bets);
+  renderSandboxAI(bets);
+}
+
+function _computeSandboxStats(bets) {
+  const settled = bets.filter(b => ['win', 'loss', 'push'].includes(b.result));
+  const wins = settled.filter(b => b.result === 'win');
+  const losses = settled.filter(b => b.result === 'loss');
+  const total_staked = settled.reduce((s, b) => s + (parseFloat(b.stake) || 0), 0);
+  const total_pnl = settled.reduce((s, b) => s + (parseFloat(b.pnl) || 0), 0);
+  const roi_pct = total_staked > 0 ? (total_pnl / total_staked * 100) : 0;
+  const win_rate_pct = settled.length > 0 ? (wins.length / settled.length * 100) : 0;
+
+  const ordered = [...settled].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  let cum = 0;
+  const bankroll_curve = ordered.map(b => {
+    cum += (parseFloat(b.pnl) || 0);
+    return { date: b.date || '', pnl: parseFloat(b.pnl) || 0, cumulative: Math.round(cum * 100) / 100 };
+  });
+
+  const byBook = {};
+  settled.forEach(b => {
+    const k = b.sportsbook || 'Other';
+    byBook[k] = byBook[k] || { bets: 0, pnl: 0, wins: 0, staked: 0 };
+    byBook[k].bets += 1;
+    byBook[k].pnl += (parseFloat(b.pnl) || 0);
+    byBook[k].staked += (parseFloat(b.stake) || 0);
+    if (b.result === 'win') byBook[k].wins += 1;
+  });
+
+  return {
+    record: `${wins.length}-${losses.length}`,
+    win_rate_pct,
+    total_staked,
+    total_pnl,
+    roi_pct,
+    streak_len: 0,
+    streak_type: 'none',
+    bankroll_curve,
+    by_sportsbook: byBook,
+  };
+}
+
+function renderSandboxAI(bets) {
+  const container = document.getElementById('pikkit-ai-container');
+  if (!container) return;
+  const settled = bets.filter(b => ['win', 'loss', 'push'].includes(b.result));
+  if (!settled.length) {
+    container.innerHTML = `
+      <div style="padding:28px 20px;text-align:center;color:var(--stone)">
+        <div style="font-size:28px;margin-bottom:8px">🧪</div>
+        <div style="font-size:15px;color:var(--parch);font-weight:600">Guest Sandbox Active</div>
+        <div style="font-size:13px;margin-top:6px;max-width:440px;margin-left:auto;margin-right:auto;line-height:1.5">
+          Paste or drop any bet slip screenshot above, or click "+ Add Bet" to test your own wagers in private browser storage.
+        </div>
+      </div>`;
+    return;
+  }
+  const wins = settled.filter(b => b.result === 'win').length;
+  const pnl = settled.reduce((s, b) => s + (parseFloat(b.pnl) || 0), 0);
+  const wr = (wins / settled.length * 100).toFixed(1);
+  container.innerHTML = `
+    <div style="padding:20px 24px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <span style="font-size:22px">🧪</span>
+        <div>
+          <div style="font-size:15px;font-weight:600;color:var(--parch)">Guest Sandbox Evaluation</div>
+          <div style="font-size:12px;color:var(--stone)">Private session stored in your browser · ${settled.length} settled bets</div>
+        </div>
+      </div>
+      <div style="background:rgba(255,255,255,0.03);border:1px solid var(--rule);border-radius:6px;padding:12px 16px;font-size:13px;color:var(--parch-dim);line-height:1.5">
+        Record: <strong>${wins}W-${settled.length - wins}L</strong> · Net P&amp;L: <strong style="color:${pnl >= 0 ? 'var(--green-pos)' : 'var(--crimson)'}">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</strong> · Win Rate: <strong>${wr}%</strong>.
+        Switch to <em>Harry's Record</em> in the top bar anytime to see the live verified public track record.
+      </div>
+    </div>`;
 }
 
 // ── AI Bet Diagnosis ───────────────────────────────────────────────

@@ -33,36 +33,35 @@ PIKKIT_PATH   = os.path.join(Config.DATA_DIR, "pikkit_bets.json")
 UPLOADS_DIR   = os.path.join(Config.DATA_DIR, "uploads")
 
 
-# ── Persistence ───────────────────────────────────────────────────
+# ── Persistence (delegated to backend.db) ──────────────────────────
 
 def _load() -> list:
-    if not os.path.exists(PIKKIT_PATH):
-        return []
-    try:
-        with open(PIKKIT_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return []
-
-
-def _save(bets: list) -> None:
-    os.makedirs(os.path.dirname(PIKKIT_PATH), exist_ok=True)
-    with open(PIKKIT_PATH, "w", encoding="utf-8") as f:
-        json.dump(bets, f, indent=2)
+    from backend.db import get_all_bets
+    return get_all_bets()
 
 
 # ── Screenshot Upload ─────────────────────────────────────────────
 
 def save_upload(image_bytes: bytes, original_filename: str) -> str:
-    """Save image bytes to uploads dir. Returns stored filename."""
-    os.makedirs(UPLOADS_DIR, exist_ok=True)
+    """Save image bytes to uploads dir or fallback to /tmp in serverless. Returns stored filename."""
     ext = os.path.splitext(original_filename)[1].lower() or ".png"
     name_hash = hashlib.md5(image_bytes).hexdigest()[:12]
     filename = f"{name_hash}{ext}"
-    path = os.path.join(UPLOADS_DIR, filename)
-    if not os.path.exists(path):
-        with open(path, "wb") as f:
-            f.write(image_bytes)
+    try:
+        os.makedirs(UPLOADS_DIR, exist_ok=True)
+        path = os.path.join(UPLOADS_DIR, filename)
+        if not os.path.exists(path):
+            with open(path, "wb") as f:
+                f.write(image_bytes)
+    except (OSError, PermissionError):
+        # Serverless / Read-only filesystem fallback
+        import tempfile
+        tmp_dir = os.path.join(tempfile.gettempdir(), "uploads")
+        os.makedirs(tmp_dir, exist_ok=True)
+        path = os.path.join(tmp_dir, filename)
+        if not os.path.exists(path):
+            with open(path, "wb") as f:
+                f.write(image_bytes)
     return filename
 
 
@@ -225,43 +224,34 @@ def create_bet_from_parsed(parsed: dict, screenshot_file: Optional[str] = None) 
 
 
 def add_bet(bet: dict) -> dict:
-    bets = _load()
-    bets.append(bet)
-    _save(bets)
-    return bet
+    from backend.db import add_bet as db_add_bet
+    return db_add_bet(bet)
 
 
 def update_bet(bet_id: str, updates: dict) -> Optional[dict]:
+    from backend.db import update_bet as db_update_bet
     bets = _load()
-    for i, b in enumerate(bets):
-        if b["id"] == bet_id:
-            bets[i].update(updates)
-            # Recompute pnl if result/stake/payout changed
-            stake  = float(bets[i].get("stake") or 0)
-            payout = bets[i].get("payout")
-            result = bets[i].get("result", "pending")
-            if "result" in updates or "stake" in updates or "payout" in updates:
-                if result == "win" and payout is not None:
-                    bets[i]["pnl"] = round(float(payout) - stake, 2)
-                elif result == "loss":
-                    bets[i]["pnl"] = round(-stake, 2)
-                elif result == "push":
-                    bets[i]["pnl"] = 0.0
-                else:
-                    bets[i]["pnl"] = bets[i].get("pnl")
-            _save(bets)
-            return bets[i]
-    return None
+    target = next((b for b in bets if b.get("id") == bet_id), None)
+    if target:
+        target.update(updates)
+        stake  = float(target.get("stake") or 0)
+        payout = target.get("payout")
+        result = target.get("result", "pending")
+        if "result" in updates or "stake" in updates or "payout" in updates:
+            if result == "win" and payout is not None:
+                updates["pnl"] = round(float(payout) - stake, 2)
+            elif result == "loss":
+                updates["pnl"] = round(-stake, 2)
+            elif result == "push":
+                updates["pnl"] = 0.0
+            else:
+                updates["pnl"] = target.get("pnl")
+    return db_update_bet(bet_id, updates)
 
 
 def delete_bet(bet_id: str) -> bool:
-    bets = _load()
-    before = len(bets)
-    bets = [b for b in bets if b["id"] != bet_id]
-    if len(bets) < before:
-        _save(bets)
-        return True
-    return False
+    from backend.db import delete_bet as db_delete_bet
+    return db_delete_bet(bet_id)
 
 
 def get_all_bets(

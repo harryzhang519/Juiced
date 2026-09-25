@@ -20,6 +20,14 @@ class Config:
     DEBUG: bool = os.getenv("FLASK_DEBUG", "false").lower() == "true"
     SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-secret-change-in-prod")
 
+    # ── Security / Admin ──────────────────────────────────
+    ADMIN_PIN: str = os.getenv("ADMIN_PIN", "")
+
+    # ── Database (Supabase / Postgres / Local Fallback) ───
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+    SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
+
     # ── Data / Cache ──────────────────────────────────────
     DATA_DIR: str = os.path.join(os.path.dirname(__file__), "data")
     CACHE_TTL_HOURS: float = float(os.getenv("CACHE_TTL_HOURS", 0.5))
