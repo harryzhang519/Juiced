@@ -38,24 +38,45 @@ app.secret_key = Config.SECRET_KEY
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 CORS(app)
 
+import urllib.parse
+
+
 class PrefixMiddleware:
     def __init__(self, wsgi_app):
         self.wsgi_app = wsgi_app
 
     def __call__(self, environ, start_response):
         try:
-            path = (
-                environ.get("HTTP_X_FORWARDED_URI")
-                or environ.get("REQUEST_URI")
-                or environ.get("RAW_URI")
-                or environ.get("PATH_INFO", "")
-            )
-            if "?" in path:
-                path = path.split("?")[0]
-            if path not in ("", "/", "/index.html"):
-                if not path.startswith("/api"):
-                    path = "/api" + (path if path.startswith("/") else "/" + path)
-                environ["PATH_INFO"] = path
+            qs = environ.get("QUERY_STRING", "")
+            matched_path = environ.get("HTTP_X_MATCHED_PATH", "")
+
+            target_path = None
+            if "__path__=" in qs:
+                params = urllib.parse.parse_qs(qs, keep_blank_values=True)
+                if "__path__" in params and params["__path__"]:
+                    raw_sub = params.pop("__path__")[0]
+                    target_path = "/api/" + raw_sub.lstrip("/")
+                    environ["QUERY_STRING"] = urllib.parse.urlencode(params, doseq=True)
+
+            if not target_path:
+                if matched_path and not matched_path.startswith("/api/index"):
+                    target_path = matched_path
+                else:
+                    target_path = (
+                        environ.get("HTTP_X_FORWARDED_URI")
+                        or environ.get("REQUEST_URI")
+                        or environ.get("RAW_URI")
+                        or environ.get("PATH_INFO", "")
+                    )
+
+            if "?" in target_path:
+                target_path = target_path.split("?")[0]
+
+            if target_path not in ("", "/", "/index.html"):
+                if not target_path.startswith("/api"):
+                    target_path = "/api" + (target_path if target_path.startswith("/") else "/" + target_path)
+                environ["PATH_INFO"] = target_path
+
             return self.wsgi_app(environ, start_response)
         except Exception as e:
             import traceback, json
@@ -713,7 +734,11 @@ def bad_request(e):
 
 @app.errorhandler(404)
 def not_found(e):
-    return jsonify({"error": "Not found"}), 404
+    return jsonify({
+        "error": "Not found",
+        "path": request.path,
+        "query": request.query_string.decode("utf-8", errors="ignore"),
+    }), 404
 
 @app.errorhandler(405)
 def method_not_allowed(e):
