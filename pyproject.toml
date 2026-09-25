@@ -12,6 +12,3 @@ dependencies = [
     "Pillow>=10.0.0",
     "setuptools>=68.0.0",
 ]
-
-[tool.vercel]
-entrypoint = "api.index:app"
