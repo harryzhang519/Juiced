@@ -10,7 +10,6 @@
 
 - [The Betting Ledger](#-the-betting-ledger)
 - [Gemini AI Engine](#-gemini-ai-engine)
-- [Expected Value (+EV) & Devigging](#-expected-value-ev--devigging)
 - [Quick Start](#-quick-start)
 - [Configuration](#-configuration)
 - [API Overview](#-api-overview)
@@ -79,15 +78,6 @@ The AI doesn't just record your bets—it analyzes your decision-making:
 
 ---
 
-## ⚡ Expected Value (+EV) & Devigging
-
-Juiced also includes a quantitative odds engine that connects to live bookmaker feeds:
-* **Proportional No-Vig Devigging**: Strips sportsbook juice to uncover true fair probabilities.
-* **Cross-Book Mispricing**: Identifies market discrepancies between sportsbooks where lines deviate from fair market consensus.
-* **Curated Parlay Engine**: Automatically generates correlation-safe parlays from top-ranked +EV opportunities.
-
----
-
 ## 🚀 Quick Start
 
 ### 1. Prerequisites
@@ -106,13 +96,10 @@ Copy the example environment configuration:
 ```bash
 cp .env.example .env
 ```
-Edit `.env` with your keys:
+Edit `.env` with your key:
 ```env
 # Gemini API Key (Required for slip screenshot parsing & AI diagnosis)
 GEMINI_API_KEY=your_gemini_api_key_here
-
-# Optional: The-Odds-API key for live market feeds (runs in demo mode if omitted)
-ODDS_API_KEY=your_odds_api_key_here
 ```
 
 ### 4. Launch the App
@@ -130,11 +117,8 @@ Key settings available in `.env`:
 | Key | Default | Description |
 |---|---|---|
 | `GEMINI_API_KEY` | *(blank)* | Google Gemini API key for screenshot Vision & AI diagnosis |
-| `ODDS_API_KEY` | *(blank)* | The-Odds-API key for live line devigging (optional) |
 | `FLASK_HOST` | `0.0.0.0` | Host interface |
 | `FLASK_PORT` | `5000` | Port number |
-| `REFRESH_CRON` | `*/30 * * * *` | Odds background refresh schedule |
-| `CACHE_TTL_HOURS` | `0` | Live odds cache expiration in hours |
 
 ---
 
@@ -149,13 +133,12 @@ Key settings available in `.env`:
 | `GET` | `/api/pikkit/stats` | Aggregate metrics (ROI%, Net PnL, Sportsbook breakdown) |
 | `GET` | `/api/pikkit/calendar` | Daily P&L calendar matrix and monthly summaries |
 | `GET` | `/api/pikkit/ai-eval` | Run Gemini AI quantitative diagnostics on bet history |
-| `GET` | `/api/ev-bets` | Real-time devigged +EV betting opportunities |
 
 ---
 
 ## 🛠️ Tech Stack
 
-* **Backend**: Python, Flask, APScheduler
+* **Backend**: Python, Flask
 * **AI & Vision**: Google Gemini Models (`gemini-3.5-flash-lite`, `gemini-3.5-flash`, `gemini-3.8-flash`) via `google-genai`
 * **Frontend**: Vanilla JS, Chart.js, HTML5, CSS3 Glassmorphism
-* **Math & Devigging**: Proportional No-Vig Method, Fair Probability Matrix
+* **Analytics**: Financial P&L modeling, ROI & equity curve calculations
