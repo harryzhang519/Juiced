@@ -16,11 +16,15 @@ if ROOT_DIR not in sys.path:
 from flask import Flask, jsonify, request
 
 app = None
+import_err_str = None
+import_err_tb = None
+
 try:
     from backend.server import app as real_app
     app = real_app
 except Exception as e:
-    tb = traceback.format_exc()
+    import_err_str = str(e)
+    import_err_tb = traceback.format_exc()
     app = Flask(__name__)
 
     @app.route("/", defaults={"subpath": ""}, methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
@@ -30,8 +34,8 @@ except Exception as e:
             "status": "error",
             "message": "Failed to import backend.server",
             "requested_subpath": subpath,
-            "error": str(e),
-            "traceback": tb.splitlines()
+            "error": import_err_str,
+            "traceback": import_err_tb.splitlines() if import_err_tb else []
         }), 200
 
 def custom_handle_exception(e):
