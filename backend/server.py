@@ -43,19 +43,30 @@ class PrefixMiddleware:
         self.wsgi_app = wsgi_app
 
     def __call__(self, environ, start_response):
-        path = (
-            environ.get("HTTP_X_FORWARDED_URI")
-            or environ.get("REQUEST_URI")
-            or environ.get("RAW_URI")
-            or environ.get("PATH_INFO", "")
-        )
-        if "?" in path:
-            path = path.split("?")[0]
-        if path not in ("", "/", "/index.html"):
-            if not path.startswith("/api"):
-                path = "/api" + (path if path.startswith("/") else "/" + path)
-            environ["PATH_INFO"] = path
-        return self.wsgi_app(environ, start_response)
+        try:
+            path = (
+                environ.get("HTTP_X_FORWARDED_URI")
+                or environ.get("REQUEST_URI")
+                or environ.get("RAW_URI")
+                or environ.get("PATH_INFO", "")
+            )
+            if "?" in path:
+                path = path.split("?")[0]
+            if path not in ("", "/", "/index.html"):
+                if not path.startswith("/api"):
+                    path = "/api" + (path if path.startswith("/") else "/" + path)
+                environ["PATH_INFO"] = path
+            return self.wsgi_app(environ, start_response)
+        except Exception as e:
+            import traceback, json
+            tb = traceback.format_exc()
+            body = json.dumps({
+                "status": "prefix_middleware_error",
+                "error": str(e),
+                "traceback": tb.splitlines()
+            }).encode("utf-8")
+            start_response("200 OK", [("Content-Type", "application/json"), ("Content-Length", str(len(body)))])
+            return [body]
 
 app.wsgi_app = PrefixMiddleware(app.wsgi_app)
 
@@ -74,14 +85,22 @@ def index():
 @app.route("/api/health")
 def api_health():
     """Health check endpoint to verify backend status, DB mode, and config."""
-    from backend.db import get_db_mode
-    return jsonify({
-        "status": "ok",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "db_mode": get_db_mode(),
-        "supabase_configured": bool(Config.SUPABASE_URL and Config.SUPABASE_KEY and "your-project" not in Config.SUPABASE_URL),
-        "admin_pin_configured": bool(Config.ADMIN_PIN),
-    })
+    try:
+        from backend.db import get_db_mode
+        return jsonify({
+            "status": "ok",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "db_mode": get_db_mode(),
+            "supabase_configured": bool(Config.SUPABASE_URL and Config.SUPABASE_KEY and "your-project" not in Config.SUPABASE_URL),
+            "admin_pin_configured": bool(Config.ADMIN_PIN),
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({
+            "status": "health_check_error",
+            "error": str(e),
+            "traceback": traceback.format_exc().splitlines()
+        }), 200
 
 
 # ── API: Sports ───────────────────────────────────────────
