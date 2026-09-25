@@ -9,6 +9,26 @@ env_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(dotenv_path=env_path, override=True)
 
 
+def _safe_int(val, default: int) -> int:
+    try:
+        if val is None:
+            return default
+        s = str(val).strip()
+        return int(s) if s else default
+    except Exception:
+        return default
+
+
+def _safe_float(val, default: float) -> float:
+    try:
+        if val is None:
+            return default
+        s = str(val).strip()
+        return float(s) if s else default
+    except Exception:
+        return default
+
+
 class Config:
     # ── The-Odds-API ──────────────────────────────────────
     ODDS_API_KEY: str = os.getenv("ODDS_API_KEY", "")
@@ -16,7 +36,7 @@ class Config:
 
     # ── Flask ─────────────────────────────────────────────
     HOST: str = os.getenv("FLASK_HOST", "0.0.0.0")
-    PORT: int = int(os.getenv("FLASK_PORT", 5000))
+    PORT: int = _safe_int(os.getenv("FLASK_PORT"), 5000)
     DEBUG: bool = os.getenv("FLASK_DEBUG", "false").lower() == "true"
     SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-secret-change-in-prod")
 
@@ -39,7 +59,7 @@ class Config:
 
     # ── Data / Cache ──────────────────────────────────────
     DATA_DIR: str = os.path.join(os.path.dirname(__file__), "data")
-    CACHE_TTL_HOURS: float = float(os.getenv("CACHE_TTL_HOURS", 0.5))
+    CACHE_TTL_HOURS: float = _safe_float(os.getenv("CACHE_TTL_HOURS"), 0.5)
 
     # ── Scheduler ─────────────────────────────────────────
     # Default: 9:00 AM every day
