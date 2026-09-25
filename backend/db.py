@@ -26,9 +26,11 @@ LOCAL_PATH = os.path.join(Config.DATA_DIR, "pikkit_bets.json")
 
 def get_db_mode() -> str:
     """Returns 'supabase_rest', 'postgres', or 'local_json'."""
-    if Config.SUPABASE_URL and Config.SUPABASE_KEY:
+    url = (Config.SUPABASE_URL or "").strip()
+    key = (Config.SUPABASE_KEY or "").strip()
+    if url and key and "your-project" not in url and not url.startswith("https://xxx"):
         return "supabase_rest"
-    if Config.DATABASE_URL:
+    if Config.DATABASE_URL and "your-db" not in Config.DATABASE_URL:
         return "postgres"
     return "local_json"
 
@@ -52,7 +54,7 @@ def _save_local(bets: list[dict]) -> None:
         with open(LOCAL_PATH, "w", encoding="utf-8") as f:
             json.dump(bets, f, indent=2)
     except Exception as e:
-        log.error("Failed to save local JSON bets: %s", e)
+        log.warning("Failed to save local JSON bets (read-only filesystem on serverless): %s", e)
 
 
 # ── Supabase REST Helpers ───────────────────────────────────────────
@@ -74,65 +76,81 @@ def _supabase_url(endpoint: str = "pikkit_bets") -> str:
 
 def _load_supabase() -> list[dict]:
     import requests
-    url = f"{_supabase_url()}?select=*&order=date.asc,logged_at.asc"
-    resp = requests.get(url, headers=_supabase_headers(), timeout=10)
-    if resp.status_code == 200:
-        data = resp.json()
-        if not data:
-            # First time setup: auto-seed from local data if table is empty
-            log.info("Supabase table pikkit_bets is empty. Auto-seeding from local bets...")
-            local_bets = _load_local()
-            if local_bets:
-                _seed_supabase(local_bets)
-                return local_bets
-        return data
-    log.error("Supabase load error (%s): %s", resp.status_code, resp.text)
+    try:
+        url = f"{_supabase_url()}?select=*&order=date.asc,logged_at.asc"
+        resp = requests.get(url, headers=_supabase_headers(), timeout=8)
+        if resp.status_code == 200:
+            data = resp.json()
+            if not data:
+                # First time setup: auto-seed from local data if table is empty
+                log.info("Supabase table pikkit_bets is empty. Auto-seeding from local bets...")
+                local_bets = _load_local()
+                if local_bets:
+                    _seed_supabase(local_bets)
+                    return local_bets
+            return data
+        log.error("Supabase load error (%s): %s", resp.status_code, resp.text)
+    except Exception as e:
+        log.error("Supabase request failed: %s — falling back to local data", e)
     # Fallback to local on error
     return _load_local()
 
 
 def _seed_supabase(bets: list[dict]) -> None:
     import requests
-    url = _supabase_url()
-    headers = _supabase_headers()
-    # Insert in batches of 50
-    for i in range(0, len(bets), 50):
-        batch = bets[i:i+50]
-        r = requests.post(url, headers=headers, json=batch, timeout=15)
-        if r.status_code not in (200, 201):
-            log.warning("Supabase seed batch %d failed: %s", i, r.text)
+    try:
+        url = _supabase_url()
+        headers = _supabase_headers()
+        # Insert in batches of 50
+        for i in range(0, len(bets), 50):
+            batch = bets[i:i+50]
+            r = requests.post(url, headers=headers, json=batch, timeout=15)
+            if r.status_code not in (200, 201):
+                log.warning("Supabase seed batch %d failed: %s", i, r.text)
+    except Exception as e:
+        log.error("Supabase seeding failed: %s", e)
 
 
 def _insert_supabase(bet: dict) -> dict:
     import requests
-    url = _supabase_url()
-    headers = _supabase_headers()
-    r = requests.post(url, headers=headers, json=bet, timeout=10)
-    if r.status_code in (200, 201):
-        res = r.json()
-        return res[0] if isinstance(res, list) and res else bet
-    log.error("Supabase insert error (%s): %s", r.status_code, r.text)
+    try:
+        url = _supabase_url()
+        headers = _supabase_headers()
+        r = requests.post(url, headers=headers, json=bet, timeout=8)
+        if r.status_code in (200, 201):
+            res = r.json()
+            return res[0] if isinstance(res, list) and res else bet
+        log.error("Supabase insert error (%s): %s", r.status_code, r.text)
+    except Exception as e:
+        log.error("Supabase insert request failed: %s", e)
     return bet
 
 
 def _update_supabase(bet_id: str, updates: dict) -> Optional[dict]:
     import requests
-    url = f"{_supabase_url()}?id=eq.{bet_id}"
-    headers = _supabase_headers()
-    r = requests.patch(url, headers=headers, json=updates, timeout=10)
-    if r.status_code in (200, 204):
-        res = r.json() if r.text else [updates]
-        return res[0] if isinstance(res, list) and res else updates
-    log.error("Supabase update error (%s): %s", r.status_code, r.text)
+    try:
+        url = f"{_supabase_url()}?id=eq.{bet_id}"
+        headers = _supabase_headers()
+        r = requests.patch(url, headers=headers, json=updates, timeout=8)
+        if r.status_code in (200, 204):
+            res = r.json() if r.text else [updates]
+            return res[0] if isinstance(res, list) and res else updates
+        log.error("Supabase update error (%s): %s", r.status_code, r.text)
+    except Exception as e:
+        log.error("Supabase update request failed: %s", e)
     return None
 
 
 def _delete_supabase(bet_id: str) -> bool:
     import requests
-    url = f"{_supabase_url()}?id=eq.{bet_id}"
-    headers = _supabase_headers()
-    r = requests.delete(url, headers=headers, timeout=10)
-    return r.status_code in (200, 204)
+    try:
+        url = f"{_supabase_url()}?id=eq.{bet_id}"
+        headers = _supabase_headers()
+        r = requests.delete(url, headers=headers, timeout=8)
+        return r.status_code in (200, 204)
+    except Exception as e:
+        log.error("Supabase delete request failed: %s", e)
+        return False
 
 
 # ── Unified Public Interface ────────────────────────────────────────

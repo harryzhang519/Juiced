@@ -30,7 +30,8 @@ import backend.scheduler as sched_mod
 log = logging.getLogger(__name__)
 
 # ── App setup ─────────────────────────────────────────────
-FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
+PUBLIC_DIR = os.path.join(os.path.dirname(__file__), "..", "public")
+FRONTEND_DIR = PUBLIC_DIR if os.path.isdir(PUBLIC_DIR) else os.path.join(os.path.dirname(__file__), "..", "frontend")
 
 app = Flask(__name__, static_folder=FRONTEND_DIR)
 app.secret_key = Config.SECRET_KEY
@@ -43,6 +44,19 @@ CORS(app)
 @app.route("/")
 def index():
     return send_from_directory(FRONTEND_DIR, "index.html")
+
+
+@app.route("/api/health")
+def api_health():
+    """Health check endpoint to verify backend status, DB mode, and config."""
+    from backend.db import get_db_mode
+    return jsonify({
+        "status": "ok",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "db_mode": get_db_mode(),
+        "supabase_configured": bool(Config.SUPABASE_URL and Config.SUPABASE_KEY and "your-project" not in Config.SUPABASE_URL),
+        "admin_pin_configured": bool(Config.ADMIN_PIN),
+    })
 
 
 # ── API: Sports ───────────────────────────────────────────
@@ -510,10 +524,14 @@ def pikkit_ai_eval():
 @app.route("/api/pikkit/screenshot/<filename>")
 def pikkit_screenshot(filename: str):
     """Serve a stored screenshot image."""
-    from flask import send_from_directory
-    import os
+    import tempfile
     uploads_dir = os.path.join(Config.DATA_DIR, "uploads")
-    return send_from_directory(uploads_dir, filename)
+    if os.path.exists(os.path.join(uploads_dir, filename)):
+        return send_from_directory(uploads_dir, filename)
+    tmp_dir = os.path.join(tempfile.gettempdir(), "uploads")
+    if os.path.exists(os.path.join(tmp_dir, filename)):
+        return send_from_directory(tmp_dir, filename)
+    abort(404)
 
 
 # ── API: Tracker — Bet Log ────────────────────────────────
