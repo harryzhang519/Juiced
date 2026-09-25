@@ -1,13 +1,4 @@
 {
-  "functions": {
-    "api/index.py": {
-      "includeFiles": [
-        "backend/**",
-        "data/**",
-        "config.py"
-      ]
-    }
-  },
   "rewrites": [
     {
       "source": "/api/(.*)",
