@@ -21,12 +21,21 @@ class Config:
     SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-secret-change-in-prod")
 
     # ── Security / Admin ──────────────────────────────────
-    ADMIN_PIN: str = os.getenv("ADMIN_PIN", "")
+    ADMIN_PIN: str = os.getenv("ADMIN_PIN", "").strip()
 
     # ── Database (Supabase / Postgres / Local Fallback) ───
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
-    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
-    SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "").strip()
+    SUPABASE_URL: str = (
+        os.getenv("SUPABASE_URL", "")
+        or os.getenv("NEXT_PUBLIC_SUPABASE_URL", "")
+    ).strip()
+    SUPABASE_KEY: str = (
+        os.getenv("SUPABASE_KEY", "")
+        or os.getenv("SUPABASE_ANON_KEY", "")
+        or os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+        or os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
+        or os.getenv("SUPABASE_SERVICE_KEY", "")
+    ).strip()
 
     # ── Data / Cache ──────────────────────────────────────
     DATA_DIR: str = os.path.join(os.path.dirname(__file__), "data")

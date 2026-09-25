@@ -38,14 +38,22 @@ def get_db_mode() -> str:
 # ── Local JSON Helpers ──────────────────────────────────────────────
 
 def _load_local() -> list[dict]:
-    if not os.path.exists(LOCAL_PATH):
-        return []
-    try:
-        with open(LOCAL_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        log.error("Failed to load local JSON bets: %s", e)
-        return []
+    candidates = [
+        LOCAL_PATH,
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "pikkit_bets.json"),
+        os.path.join(os.getcwd(), "data", "pikkit_bets.json"),
+        os.path.join(os.path.dirname(__file__), "..", "data", "pikkit_bets.json"),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if data:
+                        return data
+            except Exception as e:
+                log.error("Failed to load local JSON bets from %s: %s", path, e)
+    return []
 
 
 def _save_local(bets: list[dict]) -> None:
@@ -59,18 +67,21 @@ def _save_local(bets: list[dict]) -> None:
 
 # ── Supabase REST Helpers ───────────────────────────────────────────
 
-def _supabase_headers() -> dict:
-    key = Config.SUPABASE_KEY
-    return {
+def _supabase_headers(upsert: bool = False) -> dict:
+    key = (Config.SUPABASE_KEY or "").strip()
+    headers = {
         "apikey": key,
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
         "Prefer": "return=representation",
     }
+    if upsert:
+        headers["Prefer"] = "resolution=merge-duplicates,return=representation"
+    return headers
 
 
 def _supabase_url(endpoint: str = "pikkit_bets") -> str:
-    base = Config.SUPABASE_URL.rstrip("/")
+    base = (Config.SUPABASE_URL or "").strip().rstrip("/")
     return f"{base}/rest/v1/{endpoint}"
 
 
@@ -100,7 +111,7 @@ def _seed_supabase(bets: list[dict]) -> None:
     import requests
     try:
         url = _supabase_url()
-        headers = _supabase_headers()
+        headers = _supabase_headers(upsert=True)
         # Insert in batches of 50
         for i in range(0, len(bets), 50):
             batch = bets[i:i+50]

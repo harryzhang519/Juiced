@@ -21,8 +21,12 @@ from typing import Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+except Exception as _sched_import_err:
+    BackgroundScheduler = None
+    CronTrigger = None
 
 from config import Config
 
@@ -148,8 +152,12 @@ def _refresh_all():
         refresh_sport(sport_key, force=True)
 
 
-def start_scheduler() -> BackgroundScheduler:
+def start_scheduler() -> Optional[BackgroundScheduler]:
     global _scheduler
+
+    if BackgroundScheduler is None:
+        log.warning("APScheduler is not installed or available. Background scheduler disabled.")
+        return None
 
     if _scheduler and _scheduler.running:
         log.warning("Scheduler already running")

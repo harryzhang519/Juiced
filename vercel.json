@@ -1,13 +1,13 @@
 {
   "functions": {
-    "backend/server.py": {
+    "api/index.py": {
       "includeFiles": "data/**"
     }
   },
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/backend/server.py"
+      "destination": "/api/index.py"
     }
   ]
 }
