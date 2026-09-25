@@ -3,5 +3,11 @@
     "backend/server.py": {
       "includeFiles": "data/**"
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/backend/server.py"
+    }
+  ]
 }

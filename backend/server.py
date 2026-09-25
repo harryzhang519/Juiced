@@ -38,6 +38,18 @@ app.secret_key = Config.SECRET_KEY
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 CORS(app)
 
+class PrefixMiddleware:
+    def __init__(self, wsgi_app):
+        self.wsgi_app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        path = environ.get("PATH_INFO", "")
+        if not path.startswith("/api") and path not in ("", "/"):
+            environ["PATH_INFO"] = "/api" + (path if path.startswith("/") else "/" + path)
+        return self.wsgi_app(environ, start_response)
+
+app.wsgi_app = PrefixMiddleware(app.wsgi_app)
+
 
 # ── Static / frontend ─────────────────────────────────────
 
