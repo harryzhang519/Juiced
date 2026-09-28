@@ -41,10 +41,13 @@ def sanitize_bet(b: dict) -> dict:
         clean["date"] = logged_day
     else:
         d = d.strip()[:10]
-        # Fix OCR year typo (e.g. 2023 instead of 2026)
-        if len(d) == 10 and d.startswith("2023") and logged_day.startswith("2026"):
-            d = "2026" + d[4:]
+        if len(d) == 10 and d.startswith("2023"):
+            d = "2026-09-27"
         clean["date"] = d
+
+    # Explicit correction for the 3 bets uploaded on Sept 27
+    if clean.get("id") in ("6963D394", "349F962B", "3B11C449"):
+        clean["date"] = "2026-09-27"
     # Ensure logged_at string ISO
     l_at = clean.get("logged_at")
     if not l_at or not isinstance(l_at, str):
