@@ -213,25 +213,33 @@ def _fallback_analysis(bets: list[dict]) -> dict:
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
 
-    wins         = [b for b in settled if b["result"] == "win"]
-    losses       = [b for b in settled if b["result"] == "loss"]
+    def _safe_n(v, d=0.0):
+        try: return float(str(v or d).replace("$", "").replace(",", "").strip())
+        except Exception: return d
+
+    def _safe_o(v):
+        try: return int(float(str(v or 100).replace("+", "").strip()))
+        except Exception: return 100
+
+    wins         = [b for b in settled if str(b.get("result") or "").lower() == "win"]
+    losses       = [b for b in settled if str(b.get("result") or "").lower() == "loss"]
     win_rate     = len(wins) / len(settled) * 100
-    total_staked = sum(b.get("stake") or 0 for b in settled) or 1
-    total_pnl    = sum(b.get("pnl") or 0 for b in settled)
+    total_staked = sum(_safe_n(b.get("stake")) for b in settled) or 1
+    total_pnl    = sum(_safe_n(b.get("pnl")) for b in settled)
     roi_pct      = total_pnl / total_staked * 100
     score, score_label = compute_score(bets)
 
     # Market & Sport breakdowns
     sport_pnl: dict[str, float] = {}
     for b in settled:
-        sp = b.get("sport", "Other")
-        sport_pnl[sp] = round(sport_pnl.get(sp, 0.0) + (b.get("pnl") or 0.0), 2)
+        sp = str(b.get("sport") or "Other")
+        sport_pnl[sp] = round(sport_pnl.get(sp, 0.0) + _safe_n(b.get("pnl")), 2)
     best_sport = max(sport_pnl, key=sport_pnl.get) if sport_pnl else "MLB"
 
-    parlays = [b for b in settled if "parlay" in (b.get("market") or "").lower() or (b.get("odds") or 0) >= 300]
+    parlays = [b for b in settled if "parlay" in str(b.get("market") or "").lower() or _safe_o(b.get("odds")) >= 300]
     straights = [b for b in settled if b not in parlays]
-    parlay_pnl = sum(b.get("pnl") or 0 for b in parlays)
-    straight_pnl = sum(b.get("pnl") or 0 for b in straights)
+    parlay_pnl = sum(_safe_n(b.get("pnl")) for b in parlays)
+    straight_pnl = sum(_safe_n(b.get("pnl")) for b in straights)
 
     patterns = [
         f"Strong performance in {best_sport} generating ${sport_pnl.get(best_sport, 0):+.2f} net profit across settled wagers.",

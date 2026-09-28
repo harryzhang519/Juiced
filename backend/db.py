@@ -12,6 +12,8 @@ import json
 import logging
 import os
 import sys
+import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -20,6 +22,68 @@ from config import Config
 log = logging.getLogger(__name__)
 
 LOCAL_PATH = os.path.join(Config.DATA_DIR, "pikkit_bets.json")
+
+
+def sanitize_bet(b: dict) -> dict:
+    """Ensure every bet has strictly validated types and non-null values."""
+    if not isinstance(b, dict):
+        return {}
+    clean = dict(b)
+    # Ensure ID
+    if not clean.get("id"):
+        clean["id"] = str(uuid.uuid4())[:8].upper()
+    # Ensure date string YYYY-MM-DD
+    d = clean.get("date")
+    if not d or not isinstance(d, str):
+        clean["date"] = datetime.now().strftime("%Y-%m-%d")
+    else:
+        clean["date"] = d.strip()[:10]
+    # Ensure logged_at string ISO
+    l_at = clean.get("logged_at")
+    if not l_at or not isinstance(l_at, str):
+        clean["logged_at"] = datetime.now(timezone.utc).isoformat()
+    # Ensure stake is float
+    try:
+        clean["stake"] = float(str(clean.get("stake") or 0).replace("$", "").replace(",", "").strip())
+    except Exception:
+        clean["stake"] = 0.0
+    # Ensure payout is float or None
+    if clean.get("payout") is not None:
+        try:
+            clean["payout"] = float(str(clean["payout"]).replace("$", "").replace(",", "").strip())
+        except Exception:
+            clean["payout"] = None
+    # Ensure pnl is float
+    pnl = clean.get("pnl")
+    if pnl is not None:
+        try:
+            clean["pnl"] = round(float(str(pnl).replace("$", "").replace(",", "").strip()), 2)
+        except Exception:
+            clean["pnl"] = 0.0
+    else:
+        res = str(clean.get("result") or "pending").lower().strip()
+        if res == "win" and clean.get("payout") is not None:
+            clean["pnl"] = round(clean["payout"] - clean["stake"], 2)
+        elif res == "loss":
+            clean["pnl"] = round(-clean["stake"], 2)
+        elif res == "push":
+            clean["pnl"] = 0.0
+        else:
+            clean["pnl"] = 0.0
+    # Ensure odds is int
+    try:
+        raw_odds = str(clean.get("odds") or 100).replace("+", "").strip()
+        clean["odds"] = int(float(raw_odds))
+    except Exception:
+        clean["odds"] = 100
+    # Ensure string fields
+    clean["result"] = str(clean.get("result") or "pending").lower().strip()
+    clean["sportsbook"] = str(clean.get("sportsbook") or "Unknown").strip()
+    clean["sport"] = str(clean.get("sport") or "Unknown").strip()
+    clean["market"] = str(clean.get("market") or "Moneyline").strip()
+    clean["game"] = str(clean.get("game") or "").strip()
+    clean["selection"] = str(clean.get("selection") or "").strip()
+    return clean
 
 
 # ── Mode Detection ──────────────────────────────────────────────────
@@ -50,7 +114,7 @@ def _load_local() -> list[dict]:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     if data:
-                        return data
+                        return [sanitize_bet(b) for b in data]
             except Exception as e:
                 log.error("Failed to load local JSON bets from %s: %s", path, e)
     return []
@@ -60,7 +124,7 @@ def _save_local(bets: list[dict]) -> None:
     try:
         os.makedirs(os.path.dirname(LOCAL_PATH), exist_ok=True)
         with open(LOCAL_PATH, "w", encoding="utf-8") as f:
-            json.dump(bets, f, indent=2)
+            json.dump([sanitize_bet(b) for b in bets], f, indent=2)
     except Exception as e:
         log.warning("Failed to save local JSON bets (read-only filesystem on serverless): %s", e)
 
@@ -88,8 +152,9 @@ def _supabase_url(endpoint: str = "pikkit_bets") -> str:
 def _load_supabase() -> list[dict]:
     import requests
     try:
-        url = f"{_supabase_url()}?select=*&order=date.asc,logged_at.asc"
-        resp = requests.get(url, headers=_supabase_headers(), timeout=8)
+        # Load all rows without SQL order by clause to prevent PostgREST syntax/null ordering errors
+        url = f"{_supabase_url()}?select=*"
+        resp = requests.get(url, headers=_supabase_headers(), timeout=10)
         if resp.status_code == 200:
             data = resp.json()
             if not data:
@@ -99,12 +164,14 @@ def _load_supabase() -> list[dict]:
                 if local_bets:
                     _seed_supabase(local_bets)
                     return local_bets
-            return data
+            sanitized = [sanitize_bet(b) for b in data]
+            sanitized.sort(key=lambda b: (str(b.get("date") or ""), str(b.get("logged_at") or "")))
+            return sanitized
         log.error("Supabase load error (%s): %s", resp.status_code, resp.text)
     except Exception as e:
         log.error("Supabase request failed: %s — falling back to local data", e)
     # Fallback to local on error
-    return _load_local()
+    return [sanitize_bet(b) for b in _load_local()]
 
 
 def _seed_supabase(bets: list[dict]) -> None:
@@ -177,15 +244,17 @@ def get_all_bets() -> list[dict]:
 
 def add_bet(bet: dict) -> dict:
     """Insert a new bet into the active storage backend."""
+    clean = sanitize_bet(bet)
     mode = get_db_mode()
     if mode == "supabase_rest":
-        return _insert_supabase(bet)
+        res = _insert_supabase(clean)
+        return sanitize_bet(res)
 
     # Local JSON fallback
     bets = _load_local()
-    bets.append(bet)
+    bets.append(clean)
     _save_local(bets)
-    return bet
+    return clean
 
 
 def update_bet(bet_id: str, updates: dict) -> Optional[dict]:

@@ -188,38 +188,59 @@ Rules:
 
 # ── Bet CRUD ──────────────────────────────────────────────────────
 
+def _safe_num(val, default: float = 0.0) -> float:
+    try:
+        if val is None:
+            return default
+        return float(str(val).replace("$", "").replace(",", "").strip())
+    except Exception:
+        return default
+
+
 def create_bet_from_parsed(parsed: dict, screenshot_file: Optional[str] = None) -> dict:
     """Create a canonical pikkit bet dict from parsed/manual input."""
-    stake  = float(parsed.get("stake") or 0)
+    stake  = _safe_num(parsed.get("stake"))
     payout = parsed.get("payout")
-    result = parsed.get("result", "pending")
-    pnl    = parsed.get("pnl")
+    payout = _safe_num(payout) if payout is not None and str(payout).strip() != "" else None
+    result = str(parsed.get("result") or "pending").lower().strip()
+    raw_pnl = parsed.get("pnl")
+    pnl = _safe_num(raw_pnl) if raw_pnl is not None and str(raw_pnl).strip() != "" else None
 
     # Compute pnl if missing
     if pnl is None:
         if result == "win" and payout is not None:
-            pnl = float(payout) - stake
+            pnl = payout - stake
         elif result == "loss":
             pnl = -stake
         elif result == "push":
             pnl = 0.0
+
+    raw_date = str(parsed.get("date") or "").strip()
+    if not raw_date or raw_date.lower() == "none" or raw_date.lower() == "null":
+        raw_date = datetime.now().strftime("%Y-%m-%d")
+
+    raw_odds = str(parsed.get("odds") or 100).replace("+", "").strip()
+    try:
+        odds = int(float(raw_odds))
+    except Exception:
+        odds = 100
 
     return {
         "id":         str(uuid.uuid4())[:8].upper(),
         "logged_at":  datetime.now(timezone.utc).isoformat(),
         "source":     "screenshot" if screenshot_file else "manual",
         "screenshot": screenshot_file,
-        "date":       parsed.get("date", datetime.now().strftime("%Y-%m-%d")),
-        "sportsbook": parsed.get("sportsbook", "Unknown"),
-        "sport":      parsed.get("sport", "Unknown"),
-        "game":       parsed.get("game", ""),
-        "selection":  parsed.get("selection", ""),
-        "market":     parsed.get("market", "Moneyline"),
-        "odds":       int(parsed.get("odds") or 100),
+        "date":       raw_date[:10],
+        "sportsbook": str(parsed.get("sportsbook") or "Unknown").strip(),
+        "sport":      str(parsed.get("sport") or "Unknown").strip(),
+        "game":       str(parsed.get("game") or "").strip(),
+        "selection":  str(parsed.get("selection") or "").strip(),
+        "market":     str(parsed.get("market") or "Moneyline").strip(),
+        "odds":       odds,
         "stake":      stake,
-        "payout":     float(payout) if payout is not None else None,
+        "payout":     payout,
         "result":     result,
-        "pnl":        round(float(pnl), 2) if pnl is not None else None,
+        "pnl":        round(pnl, 2) if pnl is not None else None,
     }
 
 
@@ -266,7 +287,7 @@ def get_all_bets(
         bets = [b for b in bets if (b.get("sportsbook") or "").lower() == sportsbook.lower()]
     if sport:
         bets = [b for b in bets if (b.get("sport") or "").lower() == sport.lower()]
-    return sorted(bets, key=lambda b: b.get("date", ""), reverse=True)
+    return sorted(bets, key=lambda b: (str(b.get("date") or ""), str(b.get("logged_at") or "")), reverse=True)
 
 
 # ── Stats ─────────────────────────────────────────────────────────
@@ -276,12 +297,12 @@ def get_summary_stats() -> dict:
     bets    = _load()
     settled = [b for b in bets if b.get("result") in ("win", "loss", "push")]
     pending = [b for b in bets if b.get("result") == "pending"]
-    wins    = [b for b in settled if b["result"] == "win"]
-    losses  = [b for b in settled if b["result"] == "loss"]
-    pushes  = [b for b in settled if b["result"] == "push"]
+    wins    = [b for b in settled if b.get("result") == "win"]
+    losses  = [b for b in settled if b.get("result") == "loss"]
+    pushes  = [b for b in settled if b.get("result") == "push"]
 
-    total_staked = sum(b.get("stake") or 0 for b in settled)
-    total_pnl    = sum(b.get("pnl") or 0 for b in settled)
+    total_staked = sum(_safe_num(b.get("stake")) for b in settled)
+    total_pnl    = sum(_safe_num(b.get("pnl")) for b in settled)
     roi_pct      = (total_pnl / total_staked * 100) if total_staked > 0 else 0.0
     win_rate     = (len(wins) / len(settled) * 100) if settled else 0.0
 
@@ -294,12 +315,12 @@ def get_summary_stats() -> dict:
     # By sportsbook
     by_book: dict[str, dict] = {}
     for b in settled:
-        book = b.get("sportsbook", "Unknown")
+        book = str(b.get("sportsbook") or "Unknown")
         by_book.setdefault(book, {"bets": 0, "wins": 0, "pnl": 0.0, "staked": 0.0})
         by_book[book]["bets"]   += 1
-        by_book[book]["pnl"]    += b.get("pnl") or 0
-        by_book[book]["staked"] += b.get("stake") or 0
-        if b["result"] == "win":
+        by_book[book]["pnl"]    += _safe_num(b.get("pnl"))
+        by_book[book]["staked"] += _safe_num(b.get("stake"))
+        if b.get("result") == "win":
             by_book[book]["wins"] += 1
 
     for book, stats in by_book.items():
@@ -310,12 +331,12 @@ def get_summary_stats() -> dict:
     # By sport
     by_sport: dict[str, dict] = {}
     for b in settled:
-        sp = b.get("sport", "Unknown")
+        sp = str(b.get("sport") or "Unknown")
         by_sport.setdefault(sp, {"bets": 0, "wins": 0, "pnl": 0.0, "staked": 0.0})
         by_sport[sp]["bets"]   += 1
-        by_sport[sp]["pnl"]    += b.get("pnl") or 0
-        by_sport[sp]["staked"] += b.get("stake") or 0
-        if b["result"] == "win":
+        by_sport[sp]["pnl"]    += _safe_num(b.get("pnl"))
+        by_sport[sp]["staked"] += _safe_num(b.get("stake"))
+        if b.get("result") == "win":
             by_sport[sp]["wins"] += 1
 
     for sp, stats in by_sport.items():
@@ -361,13 +382,13 @@ def get_calendar_data() -> list[dict]:
 
     daily: dict[str, dict] = {}
     for b in settled:
-        day = b.get("date", "")[:10]
+        day = str(b.get("date") or "")[:10]
         if not day:
             continue
         daily.setdefault(day, {"date": day, "pnl": 0.0, "bets": 0, "wins": 0})
-        daily[day]["pnl"]  += b.get("pnl") or 0
+        daily[day]["pnl"]  += _safe_num(b.get("pnl"))
         daily[day]["bets"] += 1
-        if b["result"] == "win":
+        if b.get("result") == "win":
             daily[day]["wins"] += 1
 
     for day in daily:
@@ -392,11 +413,11 @@ def evaluate_bets_with_ai() -> dict:
 def _compute_streak(settled: list[dict]) -> tuple[str, int]:
     if not settled:
         return "none", 0
-    ordered = sorted(settled, key=lambda b: b.get("date", ""))
-    last_result = ordered[-1]["result"]
+    ordered = sorted(settled, key=lambda b: (str(b.get("date") or ""), str(b.get("logged_at") or "")))
+    last_result = ordered[-1].get("result", "none")
     streak = 0
     for b in reversed(ordered):
-        if b["result"] == last_result:
+        if b.get("result") == last_result:
             streak += 1
         else:
             break
@@ -410,22 +431,21 @@ def _compute_bankroll_curve(settled: list[dict]) -> list[dict]:
     2. Theoretical +EV expected baseline (EV Edge benchmark)
     3. Peak profit & drawdown metrics
     """
-    ordered = sorted(settled, key=lambda b: (b.get("date", ""), b.get("logged_at", "")))
+    ordered = sorted(settled, key=lambda b: (str(b.get("date") or ""), str(b.get("logged_at") or "")))
     cumulative = 0.0
     expected_cumulative = 0.0
     peak = 0.0
     curve = []
 
     for b in ordered:
-        pnl = b.get("pnl") or 0.0
-        stake = b.get("stake") or 0.0
+        pnl = _safe_num(b.get("pnl"))
+        stake = _safe_num(b.get("stake"))
         cumulative += pnl
 
         # Calculate theoretical expected return (+EV baseline)
         if b.get("ev_pct") is not None:
-            ev_gain = stake * (b["ev_pct"] / 100.0)
+            ev_gain = stake * (_safe_num(b["ev_pct"]) / 100.0)
         else:
-            # Standard quantitative sharp baseline: +4.5% target edge on turnover
             ev_gain = stake * 0.045
         expected_cumulative += ev_gain
 
@@ -433,14 +453,20 @@ def _compute_bankroll_curve(settled: list[dict]) -> list[dict]:
             peak = cumulative
         drawdown = peak - cumulative
 
+        raw_odds = str(b.get("odds") or 100).replace("+", "").strip()
+        try:
+            odds_val = int(float(raw_odds))
+        except Exception:
+            odds_val = 100
+
         curve.append({
-            "date":                b.get("date", ""),
-            "selection":           b.get("selection") or b.get("game") or "Wager",
-            "sport":               b.get("sport") or "Other",
-            "market":              b.get("market") or "Moneyline",
-            "odds":                b.get("odds"),
+            "date":                str(b.get("date") or "")[:10],
+            "selection":           str(b.get("selection") or b.get("game") or "Wager"),
+            "sport":               str(b.get("sport") or "Other"),
+            "market":              str(b.get("market") or "Moneyline"),
+            "odds":                odds_val,
             "stake":               round(stake, 2),
-            "result":              b.get("result", "pending"),
+            "result":              str(b.get("result") or "pending"),
             "pnl":                 round(pnl, 2),
             "cumulative":          round(cumulative, 2),
             "expected_cumulative": round(expected_cumulative, 2),

@@ -124,6 +124,44 @@ def api_health():
         }), 200
 
 
+@app.route("/api/debug-db")
+def api_debug_db():
+    """Live diagnostic endpoint to inspect Supabase records and check for serialization errors."""
+    import traceback, requests
+    from backend.db import _supabase_url, _supabase_headers, get_db_mode
+    out = {
+        "db_mode": get_db_mode(),
+        "supabase_configured": bool(Config.SUPABASE_URL and Config.SUPABASE_KEY and "your-project" not in Config.SUPABASE_URL),
+    }
+    try:
+        url = f"{_supabase_url()}?select=*"
+        resp = requests.get(url, headers=_supabase_headers(), timeout=10)
+        out["supabase_http_status"] = resp.status_code
+        if resp.status_code == 200:
+            raw = resp.json()
+            out["supabase_total_rows"] = len(raw)
+            out["sample_latest_5"] = raw[-5:] if len(raw) >= 5 else raw
+            try:
+                import backend.pikkit
+                all_bets = backend.pikkit.get_all_bets()
+                out["pikkit_all_bets_count"] = len(all_bets)
+                stats = backend.pikkit.get_summary_stats()
+                out["stats_total_bets"] = stats.get("total_bets")
+                out["stats_total_pnl"] = stats.get("total_pnl")
+                out["stats_roi_pct"] = stats.get("roi_pct")
+                out["stats_curve_points"] = len(stats.get("bankroll_curve", []))
+                out["stats_ok"] = True
+            except Exception as e:
+                out["stats_error"] = str(e)
+                out["stats_traceback"] = traceback.format_exc().splitlines()
+        else:
+            out["supabase_http_error"] = resp.text
+    except Exception as e:
+        out["call_error"] = str(e)
+        out["call_traceback"] = traceback.format_exc().splitlines()
+    return jsonify(out)
+
+
 # ── API: Sports ───────────────────────────────────────────
 
 @app.route("/api/sports")
@@ -572,8 +610,9 @@ def pikkit_calendar():
         from backend.pikkit import get_calendar_data
         return jsonify({"calendar": get_calendar_data()})
     except Exception as e:
-        log.error("Failed to load calendar data: %s", e)
-        return jsonify({"calendar": {}})
+        import traceback
+        log.error("Failed to load calendar data: %s\n%s", e, traceback.format_exc())
+        return jsonify({"calendar": {}, "error": str(e), "traceback": traceback.format_exc().splitlines()})
 
 
 @app.route("/api/pikkit/stats", methods=["GET"])
@@ -583,10 +622,15 @@ def pikkit_stats():
         import backend.pikkit
         return jsonify(backend.pikkit.get_summary_stats())
     except Exception as e:
-        log.error("Failed to compute pikkit stats: %s", e)
+        import traceback
+        tb = traceback.format_exc()
+        log.error("Failed to compute pikkit stats: %s\n%s", e, tb)
         return jsonify({
-            "total_bets": 94, "record": "38-53-3", "total_pnl": 583.50,
-            "win_rate_pct": 41.8, "roi_pct": 12.4, "bankroll_curve": [], "by_sportsbook": {}
+            "status": "stats_error",
+            "error": str(e),
+            "traceback": tb.splitlines(),
+            "bankroll_curve": [],
+            "by_sportsbook": {}
         })
 
 
