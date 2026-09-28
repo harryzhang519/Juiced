@@ -34,10 +34,17 @@ def sanitize_bet(b: dict) -> dict:
         clean["id"] = str(uuid.uuid4())[:8].upper()
     # Ensure date string YYYY-MM-DD
     d = clean.get("date")
-    if not d or not isinstance(d, str):
-        clean["date"] = datetime.now().strftime("%Y-%m-%d")
+    l_at = clean.get("logged_at")
+    logged_day = l_at[:10] if (l_at and isinstance(l_at, str) and len(l_at) >= 10) else datetime.now().strftime("%Y-%m-%d")
+
+    if not d or not isinstance(d, str) or d.strip() == "" or d.lower() in ("null", "none"):
+        clean["date"] = logged_day
     else:
-        clean["date"] = d.strip()[:10]
+        d = d.strip()[:10]
+        # Fix OCR year typo (e.g. 2023 instead of 2026)
+        if len(d) == 10 and d.startswith("2023") and logged_day.startswith("2026"):
+            d = "2026" + d[4:]
+        clean["date"] = d
     # Ensure logged_at string ISO
     l_at = clean.get("logged_at")
     if not l_at or not isinstance(l_at, str):
@@ -163,8 +170,15 @@ def _load_supabase() -> list[dict]:
                 local_bets = _load_local()
                 if local_bets:
                     _seed_supabase(local_bets)
-                    return local_bets
-            sanitized = [sanitize_bet(b) for b in data]
+            sanitized = []
+            for b in data:
+                clean = sanitize_bet(b)
+                if not b.get("date") or b.get("date") != clean["date"]:
+                    try:
+                        _update_supabase(clean["id"], {"date": clean["date"]})
+                    except Exception:
+                        pass
+                sanitized.append(clean)
             sanitized.sort(key=lambda b: (str(b.get("date") or ""), str(b.get("logged_at") or "")))
             return sanitized
         log.error("Supabase load error (%s): %s", resp.status_code, resp.text)
