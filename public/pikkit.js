@@ -542,10 +542,11 @@ function _editForm(b) {
         <input type="date" id="ie-date-${b.id}" class="form-input" value="${b.date||''}" />
       </div>
     </div>
-    <div class="form-actions" style="padding:0 20px 16px;gap:10px">
+    <div class="form-actions" style="padding:0 20px 16px;gap:10px;display:flex;align-items:center">
       <button class="btn-submit" onclick="savePikkitEdit('${b.id}')">Save</button>
       <button class="btn-secondary" onclick="toggleEditRow('${b.id}')">Cancel</button>
       <span class="form-status" id="ie-status-${b.id}"></span>
+      <button onclick="deletePikkitBet('${b.id}')" style="margin-left:auto;background:#c0392b;color:#fff;border:none;border-radius:6px;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer;letter-spacing:0.02em;" onmouseover="this.style.background='#e74c3c'" onmouseout="this.style.background='#c0392b'">🗑 Delete Bet</button>
     </div>`;
 }
 
