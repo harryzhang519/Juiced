@@ -605,8 +605,8 @@ async function savePikkitEdit(id) {
 }
 
 async function deletePikkitBet(id) {
-  if (!confirm('Delete this bet?')) return;
   if (_currentMode === 'sandbox') {
+    if (!confirm('Remove this bet from Sandbox?')) return;
     const bets = getSandboxBets().filter(b => b.id !== id);
     saveSandboxBets(bets);
     loadSandbox();
@@ -617,11 +617,26 @@ async function deletePikkitBet(id) {
     openAdminModal();
     return;
   }
-  await fetch(`/api/pikkit/bets/${id}`, {
-    method: 'DELETE',
-    headers: getAuthHeaders(),
-  });
-  loadPikkit();
+  if (!confirm('⚠️ Permanently delete this bet from the verified ledger? This cannot be undone.')) return;
+
+  // Dim the row while deleting
+  const row = document.querySelector(`tr.bet-row[data-id="${id}"]`);
+  if (row) row.style.opacity = '0.4';
+
+  try {
+    const r = await fetch(`/api/pikkit/bets/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    if (!r.ok) {
+      const txt = await r.text();
+      throw new Error(`Server error ${r.status}: ${txt}`);
+    }
+    await loadPikkit();
+  } catch (e) {
+    if (row) row.style.opacity = '';
+    alert(`❌ Delete failed: ${e.message}`);
+  }
 }
 
 // ── Upload ─────────────────────────────────────────────────────────
