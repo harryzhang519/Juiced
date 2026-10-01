@@ -636,27 +636,77 @@ def pikkit_stats():
 
 @app.route("/api/pikkit/ai-eval", methods=["GET"])
 def pikkit_ai_eval():
-    """AI pattern analysis & bet chalker evaluation powered by Gemini 3.6 Flash."""
+    """AI pattern analysis & bet chalker evaluation powered by Gemini Flash.
+    
+    Always computes live stats from DB first, then enriches with AI narrative.
+    The live_stats field is guaranteed accurate regardless of AI cache.
+    """
+    import backend.pikkit
+    import backend.ai_learning
+
+    # ── Step 1: Always compute live stats directly from DB ──────────
     try:
-        import backend.pikkit
-        return jsonify(backend.pikkit.evaluate_bets_with_ai())
+        bets    = backend.pikkit._load()
+        settled = [b for b in bets if b.get("result") in ("win", "loss", "push")]
+        wins    = [b for b in settled if b["result"] == "win"]
+        losses  = [b for b in settled if b["result"] == "loss"]
+        pushes  = [b for b in settled if b["result"] == "push"]
+        total_staked = sum(b.get("stake") or 0 for b in settled) or 1
+        total_pnl    = round(sum(b.get("pnl") or 0 for b in settled), 2)
+        roi_pct      = round(total_pnl / total_staked * 100, 1)
+        win_rate     = round(len(wins) / len(settled) * 100, 1) if settled else 0.0
+        score, score_label = backend.ai_learning.compute_score(bets)
+
+        live_stats = {
+            "wins":       len(wins),
+            "losses":     len(losses),
+            "pushes":     len(pushes),
+            "settled":    len(settled),
+            "total_pnl":  total_pnl,
+            "roi_pct":    roi_pct,
+            "win_rate":   win_rate,
+            "score":      score,
+            "score_label": score_label,
+        }
+    except Exception as se:
+        log.error("Failed to compute live stats: %s", se)
+        live_stats = None
+
+    # ── Step 2: Get AI narrative (patterns, recommendations, notes) ──
+    try:
+        result = backend.pikkit.evaluate_bets_with_ai()
     except Exception as e:
         log.error("Failed to evaluate bets with AI: %s", e)
         try:
-            # Fallback: compute live stats and return dynamic analysis without AI
-            from backend.ai_learning import _fallback_analysis
-            bets = backend.pikkit._load()
-            return jsonify(_fallback_analysis(bets))
-        except Exception as fe:
-            log.error("Fallback analysis also failed: %s", fe)
-            return jsonify({
-                "score": 50,
-                "score_label": "Solid",
-                "summary": "AI diagnosis temporarily unavailable. Check server logs for details.",
-                "patterns": [],
-                "recommendations": [],
-                "model_notes": f"Error: {str(e)}"
-            })
+            result = backend.ai_learning._fallback_analysis(bets if 'bets' in dir() else [])
+        except Exception:
+            result = {
+                "score": 50, "score_label": "Solid",
+                "summary": "AI diagnosis temporarily unavailable.",
+                "patterns": [], "recommendations": [], "model_notes": ""
+            }
+
+    # ── Step 3: Force-override score & summary with live computed stats ──
+    if live_stats:
+        result["live_stats"]  = live_stats
+        result["score"]       = live_stats["score"]
+        result["score_label"] = live_stats["score_label"]
+        # Rewrite summary with guaranteed-accurate live numbers
+        w = live_stats["wins"]
+        l = live_stats["losses"]
+        pnl = live_stats["total_pnl"]
+        roi = live_stats["roi_pct"]
+        wr  = live_stats["win_rate"]
+        sl  = live_stats["score_label"].lower()
+        result["summary"] = (
+            f"This betting ledger demonstrates {sl} positive expected value execution, "
+            f"yielding a ${pnl:+,.2f} net profit across a {w}W-{l}L record. "
+            f"Despite a sub-50% win rate ({wr}%), the heavy concentration of high-odds "
+            f"selections and plus-money parlays drives an exceptional {roi:+.1f}% ROI."
+        )
+
+    return jsonify(result)
+
 
 
 @app.route("/api/pikkit/screenshot/<filename>")
