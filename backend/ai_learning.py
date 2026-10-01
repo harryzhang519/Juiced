@@ -108,10 +108,45 @@ def evaluate_bet_history(bets: list[dict], max_bets: int = 100) -> dict:
 
         wins         = sum(1 for b in settled if b["result"] == "win")
         losses       = sum(1 for b in settled if b["result"] == "loss")
+        pushes       = sum(1 for b in settled if b["result"] == "push")
         total_pnl    = sum(b.get("pnl") or 0 for b in settled)
         total_staked = sum(b.get("stake") or 0 for b in settled) or 1
         roi_pct      = total_pnl / total_staked * 100
-        win_rate     = len([b for b in settled if b["result"] == "win"]) / len(settled) * 100
+        win_rate     = wins / len(settled) * 100
+
+        # Sport breakdown
+        sport_pnl: dict = {}
+        sport_record: dict = {}
+        for b in settled:
+            sp = b.get("sport") or "Other"
+            sport_pnl[sp] = round(sport_pnl.get(sp, 0.0) + (b.get("pnl") or 0.0), 2)
+            sport_record.setdefault(sp, {"w": 0, "l": 0})
+            if b["result"] == "win":
+                sport_record[sp]["w"] += 1
+            elif b["result"] == "loss":
+                sport_record[sp]["l"] += 1
+        sport_summary = {
+            sp: {"pnl": sport_pnl[sp], "record": f"{sport_record[sp]['w']}W-{sport_record[sp]['l']}L"}
+            for sp in sport_pnl
+        }
+
+        # Sportsbook breakdown
+        book_pnl: dict = {}
+        for b in settled:
+            bk = b.get("sportsbook") or "Unknown"
+            book_pnl[bk] = round(book_pnl.get(bk, 0.0) + (b.get("pnl") or 0.0), 2)
+
+        # Odds distribution
+        odds_list = [b.get("odds") or 0 for b in settled]
+        avg_odds = round(sum(odds_list) / len(odds_list), 1) if odds_list else 0
+        high_odds_count = sum(1 for o in odds_list if o >= 200)
+        plus_money_count = sum(1 for o in odds_list if o > 0)
+
+        # Market breakdown
+        parlays   = [b for b in settled if "parlay" in (b.get("market") or "").lower() or (b.get("odds") or 0) >= 300]
+        straights = [b for b in settled if b not in parlays]
+        parlay_pnl   = round(sum(b.get("pnl") or 0 for b in parlays), 2)
+        straight_pnl = round(sum(b.get("pnl") or 0 for b in straights), 2)
 
         bet_summary = [{
             "date":      b.get("date"),
@@ -127,28 +162,49 @@ def evaluate_bet_history(bets: list[dict], max_bets: int = 100) -> dict:
 
         prompt = f"""You are an elite quantitative sports betting analyst for EV Edge.
 Analyze this verified betting performance ledger according to the +EV quantitative framework.
+Use ONLY the exact numbers provided below — do NOT invent or use numbers from prior context.
 
-Record: {wins}W-{losses}L | Total Net Profit: ${total_pnl:+.2f} | Win Rate: {win_rate:.1f}% | ROI: {roi_pct:+.1f}%
-Sample of settled wagers:
+REAL-TIME LEDGER STATS (use these exact figures in your summary):
+  Record: {wins}W-{losses}L{f'-{pushes}P' if pushes else ''}
+  Total Net Profit: ${total_pnl:+.2f}
+  Win Rate: {win_rate:.1f}%
+  ROI: {roi_pct:+.1f}%
+  Total Bets Settled: {len(settled)}
+  Average Odds: {avg_odds:+.0f}
+  Plus-Money Bets: {plus_money_count} of {len(settled)}
+  High-Odds (>=+200) Bets: {high_odds_count}
+  Parlay P&L: ${parlay_pnl:+.2f} across {len(parlays)} bets
+  Straight P&L: ${straight_pnl:+.2f} across {len(straights)} bets
+
+SPORT BREAKDOWN:
+{json.dumps(sport_summary, indent=2)}
+
+SPORTSBOOK BREAKDOWN:
+{json.dumps(book_pnl, indent=2)}
+
+RECENT WAGERS SAMPLE (last {len(bet_summary)}):
 {json.dumps(bet_summary, indent=2)}
 
 Analysis Requirements:
 1. Closing Line Value (CLV) & Market Mispricing vs. Standard Sports Variance:
-   Evaluate whether losses were driven by expected variance (e.g. natural underdog swings, 1-run games, multi-leg parlay volatility) vs. structural bookmaker overround. Note that a 40-45% win rate is expected and mathematically profitable when betting plus-money/high odds.
+   Evaluate whether losses were driven by expected variance vs. structural bookmaker overround.
+   A {win_rate:.1f}% win rate is expected and profitable at these plus-money odds levels.
 2. Quantitative Patterns:
-   Identify 3 deep quantitative patterns across sport performance (MLB, Soccer, Tennis), market structures (Straight Moneylines vs Multi-leg Parlays), and sportsbooks.
+   Identify 3 deep quantitative patterns from the ACTUAL sport breakdown, market structures, and sportsbook data above.
 3. Actionable Strategic Recommendations:
-   Provide 3 actionable recommendations to optimize capital growth, isolate true +EV single-game edges, and protect bankroll against negative-EV parlay drag.
+   Provide 3 actionable recommendations to optimize capital growth and isolate +EV edges.
 4. Model & Calibration Notes:
-   Evaluate how actual results compare against theoretical expected value and variance.
+   Evaluate how actual ${total_pnl:+.2f} / {roi_pct:+.1f}% ROI compares against theoretical +EV baseline.
+
+CRITICAL: Your summary MUST reference the exact figures: {wins}W-{losses}L record, ${total_pnl:+.2f} net profit, {win_rate:.1f}% win rate, and {roi_pct:+.1f}% ROI.
 
 Respond STRICTLY in valid JSON format with keys:
-"summary": string (concise 2-sentence quantitative executive summary),
-"score": int (performance score between 1-100, reflecting net profit and execution quality),
+"summary": string (2-sentence quantitative executive summary using the EXACT stats above),
+"score": int (performance score 1-100),
 "score_label": string ('Elite', 'Strong', 'Solid', 'Developing', or 'Needs Work'),
-"patterns": list of 3 strings (deep quantitative patterns),
+"patterns": list of 3 strings (patterns referencing real sport/book/market data),
 "recommendations": list of 3 strings (strategic quant actions),
-"model_notes": string (variance vs mispricing assessment)"""
+"model_notes": string (variance vs mispricing assessment with exact ROI figure)"""
 
         # Models ordered by verified availability and speed
         candidate_models = [
@@ -242,8 +298,8 @@ def _fallback_analysis(bets: list[dict]) -> dict:
     straight_pnl = sum(_safe_n(b.get("pnl")) for b in straights)
 
     patterns = [
-        f"Strong performance in {best_sport} generating ${sport_pnl.get(best_sport, 0):+.2f} net profit across settled wagers.",
-        f"Asymmetric odds profile: 41.8% win rate remains highly profitable (+{roi_pct:.1f}% ROI) due to positive expected value on plus-money wagers.",
+        f"Strong performance in {best_sport} generating ${sport_pnl.get(best_sport, 0):+.2f} net profit across {len(settled)} settled wagers.",
+        f"Asymmetric odds profile: {win_rate:.1f}% win rate remains highly profitable ({roi_pct:+.1f}% ROI) due to positive expected value on plus-money wagers.",
         f"Market breakdown: Straight bets (${straight_pnl:+.2f}) provide lower volatility while parlay/high-odds positions (${parlay_pnl:+.2f}) exhibit higher variance drag.",
     ]
 
@@ -256,9 +312,9 @@ def _fallback_analysis(bets: list[dict]) -> dict:
     return {
         "score":            score,
         "score_label":      score_label,
-        "summary":          f"Ledger shows exceptional profitability of ${total_pnl:+.2f} ({roi_pct:+.1f}% ROI) across {len(settled)} bets with controlled downside.",
+        "summary":          f"This betting ledger demonstrates {score_label.lower()} positive expected value execution, yielding a ${total_pnl:+.2f} net profit across a {len(wins)}W-{len(losses)}L record. Despite a sub-50% win rate ({win_rate:.1f}%), the concentration of plus-money and high-odds selections drives an exceptional {roi_pct:+.1f}% ROI.",
         "patterns":         patterns,
         "recommendations":  recommendations,
-        "model_notes":      f"Portfolio running above expected value baseline due to favorable variance on high-odds selections. Sample size: {len(settled)} settled bets.",
+        "model_notes":      f"Portfolio running at {roi_pct:+.1f}% ROI across {len(settled)} settled bets ({len(wins)}W-{len(losses)}L, {win_rate:.1f}% win rate). ${total_pnl:+.2f} total net profit reflects favorable variance on high-odds selections above +EV baseline.",
         "generated_at":     datetime.now(timezone.utc).isoformat(),
     }

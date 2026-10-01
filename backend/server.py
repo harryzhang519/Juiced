@@ -642,22 +642,21 @@ def pikkit_ai_eval():
         return jsonify(backend.pikkit.evaluate_bets_with_ai())
     except Exception as e:
         log.error("Failed to evaluate bets with AI: %s", e)
-        return jsonify({
-            "score": 85,
-            "score_label": "Elite",
-            "summary": "Verified ledger shows exceptional profitability across 94 bets with controlled downside.",
-            "patterns": [
-                "Strong performance in MLB generating positive net profit across settled wagers.",
-                "Asymmetric odds profile: 41.8% win rate remains highly profitable (+12.4% ROI) due to positive expected value on plus-money wagers.",
-                "Market breakdown: Straight bets provide lower volatility while parlay/high-odds positions exhibit higher variance drag."
-            ],
-            "recommendations": [
-                "Focus volume on single-game straight moneylines where true market mispricing can be isolated without compounding vig.",
-                "Implement fractional Kelly unit sizing to protect bankroll against standard underdog variance cycles.",
-                "Maintain disciplined closing line tracking to ensure consistent positive CLV over extended sample sizes."
-            ],
-            "model_notes": "Portfolio running above expected value baseline due to favorable variance on high-odds selections. Sample size: 94 settled bets."
-        })
+        try:
+            # Fallback: compute live stats and return dynamic analysis without AI
+            from backend.ai_learning import _fallback_analysis
+            bets = backend.pikkit._load()
+            return jsonify(_fallback_analysis(bets))
+        except Exception as fe:
+            log.error("Fallback analysis also failed: %s", fe)
+            return jsonify({
+                "score": 50,
+                "score_label": "Solid",
+                "summary": "AI diagnosis temporarily unavailable. Check server logs for details.",
+                "patterns": [],
+                "recommendations": [],
+                "model_notes": f"Error: {str(e)}"
+            })
 
 
 @app.route("/api/pikkit/screenshot/<filename>")
